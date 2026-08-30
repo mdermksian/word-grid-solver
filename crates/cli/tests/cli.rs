@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Michael Dermksian
+
 use std::path::PathBuf;
 use std::process::Command;
 

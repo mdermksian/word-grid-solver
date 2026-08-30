@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Michael Dermksian
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WordGrid {
     size: usize,
