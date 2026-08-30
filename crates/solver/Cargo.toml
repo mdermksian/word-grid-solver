@@ -1,0 +1,12 @@
+[package]
+name = "word-grid-solver-core"
+version.workspace = true
+edition.workspace = true
+description = "Find and score words on a square letter grid."
+license.workspace = true
+
+[lib]
+name = "word_grid_solver"
+path = "src/lib.rs"
+
+[dependencies]

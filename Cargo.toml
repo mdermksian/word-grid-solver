@@ -1,8 +1,16 @@
-[package]
-name = "word-grid-solver"
+[workspace]
+members = [
+    "crates/cli",
+    "crates/game",
+    "crates/solver",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-description = "Find and score words on a square letter grid."
 license = "MIT"
 
-[dependencies]
+[workspace.dependencies]
+bevy = "0.19"
+word-grid-solver-core = { path = "crates/solver" }
