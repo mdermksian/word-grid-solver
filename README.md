@@ -17,3 +17,8 @@ cargo run -p word-grid-game
 ```
 
 The game currently starts a minimal Bevy app. Gameplay and solver integration have not been implemented yet.
+
+
+## License
+
+This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.

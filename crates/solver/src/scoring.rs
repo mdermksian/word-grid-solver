@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Michael Dermksian
+
 pub fn score_word(word: &str) -> usize {
     match word.len() {
         0..=2 => 0,
