@@ -1,0 +1,9 @@
+[package]
+name = "word-grid-game"
+version.workspace = true
+edition.workspace = true
+description = "Bevy game shell for the word grid game."
+license.workspace = true
+
+[dependencies]
+bevy.workspace = true

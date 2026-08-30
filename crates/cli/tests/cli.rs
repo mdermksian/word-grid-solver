@@ -1,7 +1,18 @@
+use std::path::PathBuf;
 use std::process::Command;
+
+fn fixture_path(name: &str) -> String {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("tests/fixtures")
+        .join(name)
+        .display()
+        .to_string()
+}
 
 #[test]
 fn accepts_flags_and_prints_results() {
+    let words = fixture_path("words.txt");
     let output = Command::new(env!("CARGO_BIN_EXE_word-grid-solver"))
         .args([
             "--size",
@@ -9,7 +20,7 @@ fn accepts_flags_and_prints_results() {
             "--min-length",
             "3",
             "--dict",
-            "tests/fixtures/words.txt",
+            &words,
             "c",
             "a",
             "t",
@@ -27,6 +38,7 @@ fn accepts_flags_and_prints_results() {
 
 #[test]
 fn rejects_grid_length_mismatch() {
+    let words = fixture_path("words.txt");
     let output = Command::new(env!("CARGO_BIN_EXE_word-grid-solver"))
         .args([
             "--size",
@@ -34,7 +46,7 @@ fn rejects_grid_length_mismatch() {
             "--min-length",
             "3",
             "--dict",
-            "tests/fixtures/words.txt",
+            &words,
             "c",
             "a",
             "t",
@@ -49,16 +61,9 @@ fn rejects_grid_length_mismatch() {
 
 #[test]
 fn reports_missing_dictionary() {
+    let missing = fixture_path("missing.txt");
     let output = Command::new(env!("CARGO_BIN_EXE_word-grid-solver"))
-        .args([
-            "--size",
-            "1",
-            "--min-length",
-            "1",
-            "--dict",
-            "tests/fixtures/missing.txt",
-            "a",
-        ])
+        .args(["--size", "1", "--min-length", "1", "--dict", &missing, "a"])
         .output()
         .expect("command should run");
 
