@@ -50,6 +50,7 @@ fn main() {
 
 fn setup_scene(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -60,13 +61,7 @@ fn setup_scene(
         affects_lightmapped_meshes: true,
     });
 
-    let die_mesh = meshes.add(Cuboid::from_length(DIE_SIZE));
     let label_mesh = meshes.add(Rectangle::new(LABEL_FACE_SIZE, LABEL_FACE_SIZE));
-    let die_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.97, 0.96, 0.92),
-        perceptual_roughness: 0.62,
-        ..default()
-    });
     let table_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.31, 0.14, 0.06),
         perceptual_roughness: 0.78,
@@ -103,8 +98,9 @@ fn setup_scene(
             .expect("cube orientations are not empty");
         let mut die = commands.spawn((
             Name::new(format!("Die {}", index + 1)),
-            Mesh3d(die_mesh.clone()),
-            MeshMaterial3d(die_material.clone()),
+            WorldAssetRoot(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/game_cube.glb")),
+            ),
             Transform::from_translation(position + Vec3::Y * (DIE_SIZE / 2.0))
                 .with_rotation(rotation),
         ));
@@ -285,7 +281,7 @@ mod tests {
             STANDARD_NEW_DICE
                 .iter()
                 .flatten()
-                .any(|label| *label == "QU")
+                .any(|label| *label == "Qu")
         );
     }
 
