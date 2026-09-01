@@ -1,7 +1,39 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Michael Dermksian
 
+use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use rand::prelude::*;
+use std::collections::HashMap;
+
+use ab_glyph::{Font, FontArc, GlyphId, PxScale, ScaleFont, point};
+
+const GRID_SIDE: usize = 4;
+const DIE_SIZE: f32 = 1.0;
+const DIE_SPACING: f32 = 1.25;
+const FACE_OFFSET: f32 = DIE_SIZE / 2.0 + 0.003;
+const LABEL_IMAGE_SIZE: u32 = 512;
+const LABEL_FACE_SIZE: f32 = 1.64;
+
+const STANDARD_NEW_DICE: [[&str; 6]; 16] = [
+    ["A", "E", "A", "N", "E", "G"],
+    ["A", "H", "S", "P", "C", "O"],
+    ["A", "S", "P", "F", "F", "K"],
+    ["O", "B", "J", "O", "A", "B"],
+    ["I", "O", "T", "M", "U", "C"],
+    ["R", "Y", "V", "D", "E", "L"],
+    ["L", "R", "E", "I", "X", "D"],
+    ["E", "I", "U", "N", "E", "S"],
+    ["W", "N", "G", "E", "E", "H"],
+    ["L", "N", "H", "N", "R", "Z"],
+    ["T", "S", "T", "I", "Y", "D"],
+    ["O", "W", "T", "O", "A", "T"],
+    ["E", "R", "T", "T", "Y", "L"],
+    ["T", "O", "E", "S", "S", "I"],
+    ["T", "E", "R", "W", "H", "V"],
+    ["N", "U", "I", "H", "M", "Qu"],
+];
 
 fn main() {
     App::new()
@@ -12,5 +44,282 @@ fn main() {
             }),
             ..default()
         }))
+        .add_systems(Startup, setup_scene)
         .run();
+}
+
+fn setup_scene(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    commands.insert_resource(GlobalAmbientLight {
+        color: Color::srgb(1.0, 0.93, 0.82),
+        brightness: 300.0,
+        affects_lightmapped_meshes: true,
+    });
+
+    let die_mesh = meshes.add(Cuboid::from_length(DIE_SIZE));
+    let label_mesh = meshes.add(Rectangle::new(LABEL_FACE_SIZE, LABEL_FACE_SIZE));
+    let die_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.97, 0.96, 0.92),
+        perceptual_roughness: 0.62,
+        ..default()
+    });
+    let table_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.31, 0.14, 0.06),
+        perceptual_roughness: 0.78,
+        ..default()
+    });
+    let label_materials = label_materials(&mut images, &mut materials);
+
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(100.0, 100.0))),
+        MeshMaterial3d(table_material),
+    ));
+
+    commands.spawn((
+        DirectionalLight {
+            color: Color::srgb(1.0, 0.9, 0.75),
+            illuminance: 4_500.0,
+            shadow_maps_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(-3.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(4.0, 8.5, 0.0).looking_at(Vec3::new(0.0, 0.3, 0.0), Vec3::Y),
+    ));
+
+    let orientations = cube_orientations();
+    let mut rng = rand::rng();
+    for (index, labels) in STANDARD_NEW_DICE.iter().enumerate() {
+        let position = grid_positions()[index];
+        let rotation = *orientations
+            .choose(&mut rng)
+            .expect("cube orientations are not empty");
+        let mut die = commands.spawn((
+            Name::new(format!("Die {}", index + 1)),
+            Mesh3d(die_mesh.clone()),
+            MeshMaterial3d(die_material.clone()),
+            Transform::from_translation(position + Vec3::Y * (DIE_SIZE / 2.0))
+                .with_rotation(rotation),
+        ));
+
+        die.with_children(|parent| {
+            for (face, label) in face_layouts().into_iter().zip(labels) {
+                parent.spawn((
+                    Mesh3d(label_mesh.clone()),
+                    MeshMaterial3d(label_materials[label].clone()),
+                    Transform::from_translation(face.normal * FACE_OFFSET)
+                        .with_rotation(face.rotation()),
+                ));
+            }
+        });
+    }
+}
+
+#[derive(Clone, Copy)]
+struct FaceLayout {
+    normal: Vec3,
+    up: Vec3,
+    right: Vec3,
+}
+
+impl FaceLayout {
+    fn rotation(self) -> Quat {
+        Quat::from_mat3(&Mat3::from_cols(self.right, self.up, self.normal))
+    }
+}
+
+fn label_materials(
+    images: &mut Assets<Image>,
+    materials: &mut Assets<StandardMaterial>,
+) -> HashMap<&'static str, Handle<StandardMaterial>> {
+    STANDARD_NEW_DICE
+        .iter()
+        .flatten()
+        .copied()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .map(|label| {
+            let image = images.add(label_image(label));
+            let material = materials.add(StandardMaterial {
+                base_color: Color::BLACK,
+                base_color_texture: Some(image),
+                alpha_mode: AlphaMode::Blend,
+                perceptual_roughness: 0.8,
+                ..default()
+            });
+            (label, material)
+        })
+        .collect()
+}
+
+fn label_image(label: &str) -> Image {
+    let font = FontArc::try_from_slice(include_bytes!("../assets/fonts/Mukta-Regular.ttf"))
+        .expect("Mukta-Regular.ttf must be a valid TrueType font");
+    let scale = PxScale::from(if label.len() == 1 { 380.0 } else { 300.0 });
+    let scaled_font = font.as_scaled(scale);
+    let glyph_ids: Vec<GlyphId> = label
+        .chars()
+        .map(|character| font.glyph_id(character))
+        .collect();
+    let width: f32 = glyph_ids
+        .iter()
+        .map(|glyph_id| scaled_font.h_advance(*glyph_id))
+        .sum();
+    let mut pixels = vec![0; (LABEL_IMAGE_SIZE * LABEL_IMAGE_SIZE * 4) as usize];
+    let mut x = (LABEL_IMAGE_SIZE as f32 - width) / 2.0;
+    let baseline = (LABEL_IMAGE_SIZE as f32 - scaled_font.height()) / 2.0 + scaled_font.ascent();
+
+    for glyph_id in glyph_ids {
+        let glyph = glyph_id.with_scale_and_position(scale, point(x, baseline));
+        if let Some(outline) = font.outline_glyph(glyph) {
+            let bounds = outline.px_bounds();
+            outline.draw(|glyph_x, glyph_y, coverage| {
+                let image_x = glyph_x as i32 + bounds.min.x as i32;
+                let image_y = glyph_y as i32 + bounds.min.y as i32;
+                if image_x < 0
+                    || image_y < 0
+                    || image_x >= LABEL_IMAGE_SIZE as i32
+                    || image_y >= LABEL_IMAGE_SIZE as i32
+                {
+                    return;
+                }
+                let pixel = ((image_y as u32 * LABEL_IMAGE_SIZE + image_x as u32) * 4) as usize;
+                pixels[pixel + 3] = (coverage * 255.0) as u8;
+            });
+        }
+        x += scaled_font.h_advance(glyph_id);
+    }
+
+    Image::new(
+        Extent3d {
+            width: LABEL_IMAGE_SIZE,
+            height: LABEL_IMAGE_SIZE,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        pixels,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    )
+}
+
+fn face_layouts() -> [FaceLayout; 6] {
+    [
+        FaceLayout {
+            normal: Vec3::Y,
+            up: Vec3::NEG_Z,
+            right: Vec3::X,
+        },
+        FaceLayout {
+            normal: Vec3::NEG_Y,
+            up: Vec3::Z,
+            right: Vec3::X,
+        },
+        FaceLayout {
+            normal: Vec3::X,
+            up: Vec3::Y,
+            right: Vec3::NEG_Z,
+        },
+        FaceLayout {
+            normal: Vec3::NEG_X,
+            up: Vec3::Y,
+            right: Vec3::Z,
+        },
+        FaceLayout {
+            normal: Vec3::Z,
+            up: Vec3::Y,
+            right: Vec3::X,
+        },
+        FaceLayout {
+            normal: Vec3::NEG_Z,
+            up: Vec3::Y,
+            right: Vec3::NEG_X,
+        },
+    ]
+}
+
+fn grid_positions() -> [Vec3; 16] {
+    std::array::from_fn(|index| {
+        let row = index / GRID_SIDE;
+        let column = index % GRID_SIDE;
+        Vec3::new(
+            (column as f32 - 1.5) * DIE_SPACING,
+            0.0,
+            (row as f32 - 1.5) * DIE_SPACING,
+        )
+    })
+}
+
+fn cube_orientations() -> [Quat; 24] {
+    let resting_orientations = [
+        Quat::IDENTITY,
+        Quat::from_rotation_z(std::f32::consts::PI),
+        Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2),
+        Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+        Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
+    ];
+    std::array::from_fn(|index| {
+        let base = resting_orientations[index / 4];
+        let top_normal = base * Vec3::Y;
+        Quat::from_axis_angle(top_normal, index as f32 % 4.0 * std::f32::consts::FRAC_PI_2) * base
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standard_new_set_has_six_faces_on_each_of_sixteen_dice() {
+        assert_eq!(STANDARD_NEW_DICE.len(), 16);
+        assert!(STANDARD_NEW_DICE.iter().all(|die| die.len() == 6));
+        assert!(
+            STANDARD_NEW_DICE
+                .iter()
+                .flatten()
+                .any(|label| *label == "QU")
+        );
+    }
+
+    #[test]
+    fn grid_positions_are_centered_and_distinct() {
+        let positions = grid_positions();
+        assert_eq!(positions.len(), 16);
+        assert!(positions.iter().all(|position| position.y == 0.0));
+        assert!((positions.iter().map(|position| position.x).sum::<f32>()).abs() < f32::EPSILON);
+        assert!((positions.iter().map(|position| position.z).sum::<f32>()).abs() < f32::EPSILON);
+        for (index, position) in positions.iter().enumerate() {
+            assert!(!positions[..index].contains(position));
+        }
+    }
+
+    #[test]
+    fn cube_orientations_are_unique_right_angle_rotations() {
+        let orientations = cube_orientations();
+        assert_eq!(orientations.len(), 24);
+        for orientation in orientations {
+            for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+                let rotated = orientation * axis;
+                assert!(rotated.x.abs() < 0.001 || (rotated.x.abs() - 1.0).abs() < 0.001);
+                assert!(rotated.y.abs() < 0.001 || (rotated.y.abs() - 1.0).abs() < 0.001);
+                assert!(rotated.z.abs() < 0.001 || (rotated.z.abs() - 1.0).abs() < 0.001);
+            }
+        }
+        for (index, orientation) in orientations.iter().enumerate() {
+            assert!(
+                orientations[..index]
+                    .iter()
+                    .all(|other| orientation.abs_diff_eq(*other, 0.001) == false
+                        && orientation.abs_diff_eq(-*other, 0.001) == false)
+            );
+        }
+    }
 }
