@@ -6,4 +6,7 @@ description = "Bevy game shell for the word grid game."
 license.workspace = true
 
 [dependencies]
+ab_glyph = "0.2"
 bevy.workspace = true
+rand = "0.10"
+word-grid-solver-core.workspace = true
