@@ -3,6 +3,7 @@
 
 use bevy::asset::RenderAssetUsages;
 use bevy::input::keyboard::KeyboardInput;
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::picking::prelude::*;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -24,7 +25,16 @@ const LABEL_FACE_SIZE: f32 = 1.64;
 struct DieCell(usize);
 
 #[derive(Component)]
-struct Hud;
+struct HudInput;
+
+#[derive(Component)]
+struct HudFeedback;
+
+#[derive(Component)]
+struct RoundTotal;
+
+#[derive(Component)]
+struct WordList;
 
 #[derive(Resource)]
 struct GameState(SinglePlayerSession);
@@ -57,7 +67,13 @@ fn main() {
         .add_systems(Startup, setup_scene)
         .add_systems(
             Update,
-            (keyboard_input, tick_highlight, draw_highlight, refresh_hud),
+            (
+                keyboard_input,
+                scroll_found_words,
+                tick_highlight,
+                draw_highlight,
+                refresh_hud,
+            ),
         )
         .run();
 }
@@ -156,21 +172,93 @@ fn setup_scene(
         ..default()
     });
     commands.insert_resource(HighlightState::default());
-    commands.spawn((
-        Text::new(""),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(16.0),
-            top: Val::Px(16.0),
-            ..default()
-        },
-        TextFont {
-            font_size: FontSize::Px(22.0),
-            ..default()
-        },
-        TextColor::WHITE,
-        Hud,
-    ));
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(16.0),
+                top: Val::Px(16.0),
+                width: Val::Px(300.0),
+                height: Val::Px(560.0),
+                padding: UiRect::all(Val::Px(16.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(10.0),
+                border_radius: BorderRadius::all(Val::Px(12.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.08, 0.06, 0.04, 0.88)),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Text::new("WORD GRID"),
+                TextFont {
+                    font_size: FontSize::Px(24.0),
+                    ..default()
+                },
+                TextColor::WHITE,
+            ));
+            parent
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        min_height: Val::Px(42.0),
+                        padding: UiRect::horizontal(Val::Px(12.0)),
+                        align_items: AlignItems::Center,
+                        border_radius: BorderRadius::all(Val::Px(6.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::WHITE),
+                ))
+                .with_children(|input| {
+                    input.spawn((
+                        Text::new(""),
+                        TextFont {
+                            font_size: FontSize::Px(22.0),
+                            ..default()
+                        },
+                        TextColor::BLACK,
+                        HudInput,
+                    ));
+                });
+            parent.spawn((
+                Text::new("Click dice or type a word, then press Enter."),
+                TextFont {
+                    font_size: FontSize::Px(15.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.95, 0.7, 0.5)),
+                HudFeedback,
+            ));
+            parent.spawn((
+                Text::new("FOUND WORDS"),
+                TextFont {
+                    font_size: FontSize::Px(17.0),
+                    ..default()
+                },
+                TextColor::WHITE,
+            ));
+            parent.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_grow: 1.0,
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(4.0),
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+                ScrollPosition::default(),
+                WordList,
+            ));
+            parent.spawn((
+                Text::new("ROUND TOTAL: 0"),
+                TextFont {
+                    font_size: FontSize::Px(20.0),
+                    ..default()
+                },
+                TextColor::WHITE,
+                RoundTotal,
+            ));
+        });
 }
 
 #[derive(Clone, Copy)]
@@ -502,14 +590,41 @@ fn draw_highlight(highlight: Res<HighlightState>, mut gizmos: Gizmos) {
     }
 }
 
+fn scroll_found_words(
+    mut wheel_events: MessageReader<MouseWheel>,
+    mut lists: Query<(&mut ScrollPosition, &ComputedNode), With<WordList>>,
+) {
+    let mut delta = 0.0;
+    for event in wheel_events.read() {
+        delta -= event.y
+            * if event.unit == MouseScrollUnit::Line {
+                24.0
+            } else {
+                1.0
+            };
+    }
+    if delta == 0.0 {
+        return;
+    }
+
+    for (mut position, computed) in &mut lists {
+        let max_offset = (computed.content_size().y - computed.size().y).max(0.0)
+            * computed.inverse_scale_factor();
+        position.y = (position.y + delta).clamp(0.0, max_offset);
+    }
+}
+
 fn refresh_hud(
     state: Res<GameState>,
     input: Res<InputState>,
-    mut hud: Query<&mut Text, With<Hud>>,
+    mut commands: Commands,
+    mut texts: ParamSet<(
+        Query<&mut Text, With<HudInput>>,
+        Query<&mut Text, With<HudFeedback>>,
+        Query<&mut Text, With<RoundTotal>>,
+    )>,
+    word_list: Query<Entity, With<WordList>>,
 ) {
-    let Ok(mut text) = hud.single_mut() else {
-        return;
-    };
     let word = if input.typed.is_empty() {
         state
             .0
@@ -520,18 +635,58 @@ fn refresh_hud(
     } else {
         input.typed.clone()
     };
-    text.0 = format!(
-        "WORD: {}\nROUND: {}  TOTAL: {}\nFOUND: {}\n{}\n\nClick dice - type - Enter submit - Esc clear",
-        word.to_uppercase(),
-        state.0.round_score(),
-        state.0.total_score(),
-        state
-            .0
-            .round_words
-            .iter()
-            .map(|found| found.word.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
-        input.feedback,
-    );
+    if let Ok(mut text) = texts.p0().single_mut() {
+        text.0 = word.to_uppercase();
+    }
+    if let Ok(mut text) = texts.p1().single_mut() {
+        text.0 = input.feedback.clone();
+    }
+    if let Ok(mut text) = texts.p2().single_mut() {
+        text.0 = format!("ROUND TOTAL: {}", state.0.round_score());
+    }
+
+    if !state.is_changed() {
+        return;
+    }
+    let Ok(list) = word_list.single() else {
+        return;
+    };
+    commands.entity(list).despawn_related::<Children>();
+    let mut words = state.0.round_words.clone();
+    words.sort_by(|left, right| {
+        right
+            .word
+            .chars()
+            .count()
+            .cmp(&left.word.chars().count())
+            .then_with(|| left.word.cmp(&right.word))
+    });
+    commands.entity(list).with_children(|parent| {
+        for found in words {
+            parent
+                .spawn(Node {
+                    width: Val::Percent(100.0),
+                    justify_content: JustifyContent::SpaceBetween,
+                    ..default()
+                })
+                .with_children(|row| {
+                    row.spawn((
+                        Text::new(found.word.to_uppercase()),
+                        TextFont {
+                            font_size: FontSize::Px(18.0),
+                            ..default()
+                        },
+                        TextColor::WHITE,
+                    ));
+                    row.spawn((
+                        Text::new(found.score.to_string()),
+                        TextFont {
+                            font_size: FontSize::Px(18.0),
+                            ..default()
+                        },
+                        TextColor(Color::srgb(1.0, 0.82, 0.35)),
+                    ));
+                });
+        }
+    });
 }
