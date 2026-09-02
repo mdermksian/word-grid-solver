@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Michael Dermksian
 
 pub fn score_word(word: &str) -> usize {
-    match word.len() {
+    match word.chars().count() {
         0..=2 => 0,
         3 | 4 => 1,
         5 => 2,

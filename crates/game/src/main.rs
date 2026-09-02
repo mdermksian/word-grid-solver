@@ -2,10 +2,14 @@
 // Copyright (C) 2026 Michael Dermksian
 
 use bevy::asset::RenderAssetUsages;
+use bevy::input::keyboard::KeyboardInput;
+use bevy::picking::prelude::*;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use rand::prelude::*;
 use std::collections::HashMap;
+use word_grid_game::{CubeSet, GameDefinition, STANDARD_NEW_DICE, SinglePlayerSession};
+use word_grid_solver::{Dictionary, WordGrid};
 
 use ab_glyph::{Font, FontArc, GlyphId, PxScale, ScaleFont, point};
 
@@ -16,24 +20,21 @@ const FACE_OFFSET: f32 = DIE_SIZE / 2.0 + 0.003;
 const LABEL_IMAGE_SIZE: u32 = 512;
 const LABEL_FACE_SIZE: f32 = 1.64;
 
-const STANDARD_NEW_DICE: [[&str; 6]; 16] = [
-    ["A", "E", "A", "N", "E", "G"],
-    ["A", "H", "S", "P", "C", "O"],
-    ["A", "S", "P", "F", "F", "K"],
-    ["O", "B", "J", "O", "A", "B"],
-    ["I", "O", "T", "M", "U", "C"],
-    ["R", "Y", "V", "D", "E", "L"],
-    ["L", "R", "E", "I", "X", "D"],
-    ["E", "I", "U", "N", "E", "S"],
-    ["W", "N", "G", "E", "E", "H"],
-    ["L", "N", "H", "N", "R", "Z"],
-    ["T", "S", "T", "I", "Y", "D"],
-    ["O", "W", "T", "O", "A", "T"],
-    ["E", "R", "T", "T", "Y", "L"],
-    ["T", "O", "E", "S", "S", "I"],
-    ["T", "E", "R", "W", "H", "V"],
-    ["N", "U", "I", "H", "M", "Qu"],
-];
+#[derive(Component)]
+struct DieCell(usize);
+
+#[derive(Component)]
+struct Hud;
+
+#[derive(Resource)]
+struct GameState(SinglePlayerSession);
+
+#[derive(Resource, Default)]
+struct InputState {
+    path: Vec<usize>,
+    typed: String,
+    feedback: String,
+}
 
 fn main() {
     App::new()
@@ -44,7 +45,9 @@ fn main() {
             }),
             ..default()
         }))
+        .add_plugins(MeshPickingPlugin)
         .add_systems(Startup, setup_scene)
+        .add_systems(Update, (keyboard_input, refresh_hud))
         .run();
 }
 
@@ -91,13 +94,24 @@ fn setup_scene(
 
     let orientations = cube_orientations();
     let mut rng = rand::rng();
+    let mut cells = Vec::with_capacity(GRID_SIDE * GRID_SIDE);
     for (index, labels) in STANDARD_NEW_DICE.iter().enumerate() {
         let position = grid_positions()[index];
         let rotation = *orientations
             .choose(&mut rng)
             .expect("cube orientations are not empty");
+        let top_label = face_layouts()
+            .into_iter()
+            .zip(labels)
+            .find_map(|(face, label)| {
+                ((rotation * face.normal).abs_diff_eq(Vec3::Y, 0.001)).then_some(*label)
+            })
+            .expect("every cube orientation has a top face");
+        cells.push(top_label.to_string());
         let mut die = commands.spawn((
             Name::new(format!("Die {}", index + 1)),
+            DieCell(index),
+            Pickable::default(),
             WorldAssetRoot(
                 asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/game_cube.glb")),
             ),
@@ -105,6 +119,7 @@ fn setup_scene(
                 .with_rotation(rotation),
         ));
 
+        die.observe(select_die);
         die.with_children(|parent| {
             for (face, label) in face_layouts().into_iter().zip(labels) {
                 parent.spawn((
@@ -116,6 +131,34 @@ fn setup_scene(
             }
         });
     }
+
+    let dictionary = Dictionary::from_file("twl06.txt").expect("twl06.txt must be available");
+    let mut session = SinglePlayerSession::new(
+        GameDefinition::normal(CubeSet::StandardNew),
+        dictionary,
+        &mut rng,
+    );
+    session.board.grid = WordGrid::new(GRID_SIDE, cells).expect("the rendered board is square");
+    commands.insert_resource(GameState(session));
+    commands.insert_resource(InputState {
+        feedback: "Click adjacent dice; type a word; Enter submits.".into(),
+        ..default()
+    });
+    commands.spawn((
+        Text::new(""),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(16.0),
+            top: Val::Px(16.0),
+            ..default()
+        },
+        TextFont {
+            font_size: FontSize::Px(22.0),
+            ..default()
+        },
+        TextColor::WHITE,
+        Hud,
+    ));
 }
 
 #[derive(Clone, Copy)]
@@ -318,4 +361,134 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn backspace_removes_typed_text_before_a_selected_path() {
+        let mut input = InputState {
+            path: vec![1, 2],
+            typed: "cat".into(),
+            ..default()
+        };
+
+        delete_last_input(&mut input);
+        assert_eq!(input.typed, "ca");
+        assert_eq!(input.path, vec![1, 2]);
+
+        input.typed.clear();
+        delete_last_input(&mut input);
+        assert_eq!(input.path, vec![1]);
+    }
+}
+
+fn select_die(
+    event: On<Pointer<Click>>,
+    cells: Query<&DieCell>,
+    mut input: ResMut<InputState>,
+    state: Res<GameState>,
+) {
+    let Ok(cell) = cells.get(event.entity) else {
+        return;
+    };
+    if input.path.contains(&cell.0) {
+        input.feedback = "A die cannot be reused.".into();
+        return;
+    }
+    if let Some(&last) = input.path.last()
+        && !state.0.board.grid.neighbors(last).contains(&cell.0)
+    {
+        input.feedback = "Choose an adjacent die.".into();
+        return;
+    }
+    input.path.push(cell.0);
+    input.typed.clear();
+    input.feedback = format!(
+        "Selected {}",
+        state
+            .0
+            .board
+            .grid
+            .word_for_path(&input.path)
+            .expect("selected paths are validated before insertion")
+            .to_uppercase()
+    );
+}
+
+fn keyboard_input(
+    mut events: MessageReader<KeyboardInput>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut input: ResMut<InputState>,
+    mut state: ResMut<GameState>,
+) {
+    for event in events.read() {
+        if !event.state.is_pressed() {
+            continue;
+        }
+        if event.key_code == KeyCode::Backspace {
+            delete_last_input(&mut input);
+        } else if let Some(text) = &event.text {
+            input.typed.push_str(text);
+            input.path.clear();
+        }
+    }
+    if keys.just_pressed(KeyCode::Escape) {
+        input.path.clear();
+        input.typed.clear();
+    }
+    if keys.just_pressed(KeyCode::Enter) {
+        let result = if input.typed.is_empty() {
+            state.0.submit_path(input.path.clone())
+        } else {
+            state.0.submit_text(&input.typed)
+        };
+        input.feedback = match result {
+            Ok(word) => {
+                input.path.clear();
+                input.typed.clear();
+                format!("Accepted {} (+{})", word.word.to_uppercase(), word.score)
+            }
+            Err(error) => error.to_string(),
+        };
+    }
+}
+
+fn delete_last_input(input: &mut InputState) {
+    if input.typed.is_empty() {
+        input.path.pop();
+    } else {
+        input.typed.pop();
+    }
+}
+
+fn refresh_hud(
+    state: Res<GameState>,
+    input: Res<InputState>,
+    mut hud: Query<&mut Text, With<Hud>>,
+) {
+    let Ok(mut text) = hud.single_mut() else {
+        return;
+    };
+    let word = if input.typed.is_empty() {
+        state
+            .0
+            .board
+            .grid
+            .word_for_path(&input.path)
+            .unwrap_or_default()
+    } else {
+        input.typed.clone()
+    };
+    text.0 = format!(
+        "WORD: {}\nROUND: {}  TOTAL: {}\nFOUND: {}\n{}\n\nClick dice · type · Enter submit · Esc clear",
+        word.to_uppercase(),
+        state.0.round_score(),
+        state.0.total_score(),
+        state
+            .0
+            .round_words
+            .iter()
+            .map(|found| found.word.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+        input.feedback,
+    );
 }

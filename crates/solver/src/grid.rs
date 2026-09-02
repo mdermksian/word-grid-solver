@@ -7,6 +7,33 @@ pub struct WordGrid {
     cells: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WordPathError {
+    Empty,
+    OutOfBounds { index: usize },
+    ReusedCell { index: usize },
+    NonAdjacent { from: usize, to: usize },
+}
+
+impl std::fmt::Display for WordPathError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(formatter, "word path cannot be empty"),
+            Self::OutOfBounds { index } => {
+                write!(formatter, "cell index {index} is outside the grid")
+            }
+            Self::ReusedCell { index } => {
+                write!(formatter, "cell index {index} is used more than once")
+            }
+            Self::NonAdjacent { from, to } => {
+                write!(formatter, "cell {to} is not adjacent to cell {from}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for WordPathError {}
+
 impl WordGrid {
     pub fn new(size: usize, cells: Vec<String>) -> Result<Self, String> {
         if size == 0 {
@@ -68,6 +95,75 @@ impl WordGrid {
         }
 
         neighbors
+    }
+
+    pub fn word_for_path(&self, path: &[usize]) -> Result<String, WordPathError> {
+        if path.is_empty() {
+            return Err(WordPathError::Empty);
+        }
+        let mut visited = vec![false; self.cells.len()];
+        let mut word = String::new();
+        for (position, &index) in path.iter().enumerate() {
+            if index >= self.cells.len() {
+                return Err(WordPathError::OutOfBounds { index });
+            }
+            if visited[index] {
+                return Err(WordPathError::ReusedCell { index });
+            }
+            if position > 0 {
+                let previous = path[position - 1];
+                if !self.neighbors(previous).contains(&index) {
+                    return Err(WordPathError::NonAdjacent {
+                        from: previous,
+                        to: index,
+                    });
+                }
+            }
+            visited[index] = true;
+            word.push_str(self.cell(index));
+        }
+        Ok(word)
+    }
+
+    pub fn find_path_for_word(&self, word: &str) -> Option<Vec<usize>> {
+        let target = word.trim().to_ascii_lowercase();
+        if target.is_empty() {
+            return None;
+        }
+        let mut visited = vec![false; self.cells.len()];
+        for start in 0..self.cells.len() {
+            let mut path = Vec::new();
+            if self.search_path(start, &target, &mut visited, &mut path) {
+                return Some(path);
+            }
+        }
+        None
+    }
+
+    fn search_path(
+        &self,
+        index: usize,
+        remaining: &str,
+        visited: &mut [bool],
+        path: &mut Vec<usize>,
+    ) -> bool {
+        if visited[index] || !remaining.starts_with(self.cell(index)) {
+            return false;
+        }
+        let next = &remaining[self.cell(index).len()..];
+        visited[index] = true;
+        path.push(index);
+        if next.is_empty() {
+            return true;
+        }
+        for neighbor in self.neighbors(index) {
+            if self.search_path(neighbor, next, visited, path) {
+                return true;
+            }
+        }
+        visited[index] = false;
+        path.pop();
+        false
     }
 }
 
