@@ -16,7 +16,7 @@ The word list defaults to `twl06.txt` when `--dict` is not provided.
 cargo run -p word-grid-game
 ```
 
-The game currently starts a minimal Bevy app
+The game currently contains only a basic implementation, and is still WIP
 
 ## Local quality checks
 
