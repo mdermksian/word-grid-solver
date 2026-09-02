@@ -38,7 +38,7 @@ jobs:
       - name: Install Bevy Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libasound2-dev libudev-dev
+          sudo apt-get install --yes libasound2-dev libudev-dev libwayland-dev
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
@@ -54,7 +54,7 @@ jobs:
       - name: Install Bevy Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libasound2-dev libudev-dev
+          sudo apt-get install --yes libasound2-dev libudev-dev libwayland-dev
       - run: cargo test --workspace --locked
 
   check:
@@ -70,5 +70,5 @@ jobs:
       - name: Install Bevy Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libasound2-dev libudev-dev
+          sudo apt-get install --yes libasound2-dev libudev-dev libwayland-dev
       - run: cargo check --workspace --all-targets --locked
