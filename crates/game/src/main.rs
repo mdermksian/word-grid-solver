@@ -36,6 +36,14 @@ struct InputState {
     feedback: String,
 }
 
+#[derive(Resource, Default)]
+struct HighlightState(Option<WordHighlight>);
+
+struct WordHighlight {
+    path: Vec<usize>,
+    timer: Timer,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -47,7 +55,10 @@ fn main() {
         }))
         .add_plugins(MeshPickingPlugin)
         .add_systems(Startup, setup_scene)
-        .add_systems(Update, (keyboard_input, refresh_hud))
+        .add_systems(
+            Update,
+            (keyboard_input, tick_highlight, draw_highlight, refresh_hud),
+        )
         .run();
 }
 
@@ -144,6 +155,7 @@ fn setup_scene(
         feedback: "Click adjacent dice; type a word; Enter submits.".into(),
         ..default()
     });
+    commands.insert_resource(HighlightState::default());
     commands.spawn((
         Text::new(""),
         Node {
@@ -418,6 +430,7 @@ fn keyboard_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut input: ResMut<InputState>,
     mut state: ResMut<GameState>,
+    mut highlight: ResMut<HighlightState>,
 ) {
     for event in events.read() {
         if !event.state.is_pressed() {
@@ -425,6 +438,9 @@ fn keyboard_input(
         }
         if event.key_code == KeyCode::Backspace {
             delete_last_input(&mut input);
+        } else if event.key_code == KeyCode::Enter {
+            // Enter may carry a newline in `text`; it submits and is never part of a word.
+            continue;
         } else if let Some(text) = &event.text {
             input.typed.push_str(text);
             input.path.clear();
@@ -442,12 +458,16 @@ fn keyboard_input(
         };
         input.feedback = match result {
             Ok(word) => {
-                input.path.clear();
-                input.typed.clear();
+                highlight.0 = Some(WordHighlight {
+                    path: word.path.clone(),
+                    timer: Timer::from_seconds(3.0, TimerMode::Once),
+                });
                 format!("Accepted {} (+{})", word.word.to_uppercase(), word.score)
             }
             Err(error) => error.to_string(),
         };
+        input.path.clear();
+        input.typed.clear();
     }
 }
 
@@ -456,6 +476,29 @@ fn delete_last_input(input: &mut InputState) {
         input.path.pop();
     } else {
         input.typed.pop();
+    }
+}
+
+fn tick_highlight(time: Res<Time>, mut highlight: ResMut<HighlightState>) {
+    let Some(active) = highlight.0.as_mut() else {
+        return;
+    };
+
+    active.timer.tick(time.delta());
+    if active.timer.is_finished() {
+        highlight.0 = None;
+    }
+}
+
+fn draw_highlight(highlight: Res<HighlightState>, mut gizmos: Gizmos) {
+    let Some(active) = &highlight.0 else {
+        return;
+    };
+
+    for pair in active.path.windows(2) {
+        let start = grid_positions()[pair[0]] + Vec3::Y * (DIE_SIZE + 0.04);
+        let end = grid_positions()[pair[1]] + Vec3::Y * (DIE_SIZE + 0.04);
+        gizmos.line(start, end, Color::srgb(0.9, 0.05, 0.05));
     }
 }
 
@@ -478,7 +521,7 @@ fn refresh_hud(
         input.typed.clone()
     };
     text.0 = format!(
-        "WORD: {}\nROUND: {}  TOTAL: {}\nFOUND: {}\n{}\n\nClick dice · type · Enter submit · Esc clear",
+        "WORD: {}\nROUND: {}  TOTAL: {}\nFOUND: {}\n{}\n\nClick dice - type - Enter submit - Esc clear",
         word.to_uppercase(),
         state.0.round_score(),
         state.0.total_score(),
