@@ -14,19 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  format:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.98.0
-          components: rustfmt, clippy
-      - run: cargo fmt --all -- --check
-
-  lint:
-    name: Lint
+  quality:
+    name: Quality checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -39,36 +28,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libasound2-dev libudev-dev libwayland-dev
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.98.0
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Bevy Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libasound2-dev libudev-dev libwayland-dev
-      - run: cargo test --workspace --locked
-
-  check:
-    name: Compile
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.98.0
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Bevy Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libasound2-dev libudev-dev libwayland-dev
-      - run: cargo check --workspace --all-targets --locked
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Compile
+        run: cargo check --workspace --all-targets --locked
