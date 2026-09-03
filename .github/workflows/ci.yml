@@ -27,7 +27,7 @@ jobs:
       - name: Install Bevy Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libasound2-dev libudev-dev libwayland-dev
+          sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
       - name: Format
         run: cargo fmt --all -- --check
       - name: Lint
