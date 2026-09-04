@@ -5,7 +5,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process;
 
-use word_grid_solver::{format_results, format_word_grid, Dictionary, GridSolver, WordGrid};
+use word_grid_solver::{Dictionary, GridSolver, WordGrid, format_results, format_word_grid};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Config {
@@ -69,7 +69,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config, String> 
                 dict_path = PathBuf::from(value);
             }
             _ if arg.starts_with('-') => {
-                return Err(format!("unknown option '{arg}'\n\n{}", usage()))
+                return Err(format!("unknown option '{arg}'\n\n{}", usage()));
             }
             _ => cells.push(arg),
         }
@@ -108,7 +108,7 @@ fn usage() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_args, Config};
+    use super::{Config, parse_args};
     use std::path::PathBuf;
 
     #[test]

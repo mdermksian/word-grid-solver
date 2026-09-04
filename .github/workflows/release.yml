@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Bevy Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo check --workspace --all-targets --locked
+
+  package:
+    name: Package ${{ matrix.target }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: macos-15
+            target: aarch64-apple-darwin
+            archive: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Bevy Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+      - name: Build game
+        run: cargo build --release --locked --package word-grid-game --target ${{ matrix.target }}
+      - name: Package Unix archive
+        if: runner.os != 'Windows'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          bundle="dist/word-grid-game-${TARGET}"
+          mkdir -p "${bundle}/assets"
+          cp "target/${TARGET}/release/word-grid-game" "${bundle}/"
+          cp -R assets/. "${bundle}/assets/"
+          cp LICENSE packaging/README.txt "${bundle}/"
+          test -x "${bundle}/word-grid-game"
+          test -f "${bundle}/assets/models/game_cube.glb"
+          tar -C dist -czf "dist/word-grid-game-${TARGET}.tar.gz" "word-grid-game-${TARGET}"
+      - name: Package Windows archive
+        if: runner.os == 'Windows'
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $bundle = "dist/word-grid-game-$env:TARGET"
+          New-Item -ItemType Directory -Force -Path "$bundle/assets" | Out-Null
+          Copy-Item "target/$env:TARGET/release/word-grid-game.exe" $bundle
+          Copy-Item assets/* "$bundle/assets" -Recurse
+          Copy-Item LICENSE, packaging/README.txt $bundle
+          if (!(Test-Path "$bundle/word-grid-game.exe")) { throw "Game executable missing" }
+          if (!(Test-Path "$bundle/assets/models/game_cube.glb")) { throw "Game asset missing" }
+          Compress-Archive -Path $bundle -DestinationPath "dist/word-grid-game-$env:TARGET.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/word-grid-game-${{ matrix.target }}.${{ matrix.archive }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release and upload archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
+          gh release upload "$TAG" dist/* --clobber

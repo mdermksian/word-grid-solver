@@ -54,15 +54,28 @@ struct WordHighlight {
     timer: Timer,
 }
 
+type HudTextQueries<'w, 's> = (
+    Query<'w, 's, &'static mut Text, With<HudInput>>,
+    Query<'w, 's, &'static mut Text, With<HudFeedback>>,
+    Query<'w, 's, &'static mut Text, With<RoundTotal>>,
+);
+
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Word Grid".to_string(),
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Word Grid".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(AssetPlugin {
+                    file_path: asset_path(),
+                    ..default()
+                }),
+        )
         .add_plugins(MeshPickingPlugin)
         .add_systems(Startup, setup_scene)
         .add_systems(
@@ -76,6 +89,20 @@ fn main() {
             ),
         )
         .run();
+}
+
+fn asset_path() -> String {
+    let bundled_assets = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|directory| directory.join("assets")));
+
+    bundled_assets
+        .filter(|path| path.is_dir())
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets")
+        })
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn setup_scene(
@@ -412,74 +439,6 @@ fn cube_orientations() -> [Quat; 24] {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn standard_new_set_has_six_faces_on_each_of_sixteen_dice() {
-        assert_eq!(STANDARD_NEW_DICE.len(), 16);
-        assert!(STANDARD_NEW_DICE.iter().all(|die| die.len() == 6));
-        assert!(
-            STANDARD_NEW_DICE
-                .iter()
-                .flatten()
-                .any(|label| *label == "Qu")
-        );
-    }
-
-    #[test]
-    fn grid_positions_are_centered_and_distinct() {
-        let positions = grid_positions();
-        assert_eq!(positions.len(), 16);
-        assert!(positions.iter().all(|position| position.y == 0.0));
-        assert!((positions.iter().map(|position| position.x).sum::<f32>()).abs() < f32::EPSILON);
-        assert!((positions.iter().map(|position| position.z).sum::<f32>()).abs() < f32::EPSILON);
-        for (index, position) in positions.iter().enumerate() {
-            assert!(!positions[..index].contains(position));
-        }
-    }
-
-    #[test]
-    fn cube_orientations_are_unique_right_angle_rotations() {
-        let orientations = cube_orientations();
-        assert_eq!(orientations.len(), 24);
-        for orientation in orientations {
-            for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
-                let rotated = orientation * axis;
-                assert!(rotated.x.abs() < 0.001 || (rotated.x.abs() - 1.0).abs() < 0.001);
-                assert!(rotated.y.abs() < 0.001 || (rotated.y.abs() - 1.0).abs() < 0.001);
-                assert!(rotated.z.abs() < 0.001 || (rotated.z.abs() - 1.0).abs() < 0.001);
-            }
-        }
-        for (index, orientation) in orientations.iter().enumerate() {
-            assert!(
-                orientations[..index]
-                    .iter()
-                    .all(|other| orientation.abs_diff_eq(*other, 0.001) == false
-                        && orientation.abs_diff_eq(-*other, 0.001) == false)
-            );
-        }
-    }
-
-    #[test]
-    fn backspace_removes_typed_text_before_a_selected_path() {
-        let mut input = InputState {
-            path: vec![1, 2],
-            typed: "cat".into(),
-            ..default()
-        };
-
-        delete_last_input(&mut input);
-        assert_eq!(input.typed, "ca");
-        assert_eq!(input.path, vec![1, 2]);
-
-        input.typed.clear();
-        delete_last_input(&mut input);
-        assert_eq!(input.path, vec![1]);
-    }
-}
-
 fn select_die(
     event: On<Pointer<Click>>,
     cells: Query<&DieCell>,
@@ -618,11 +577,7 @@ fn refresh_hud(
     state: Res<GameState>,
     input: Res<InputState>,
     mut commands: Commands,
-    mut texts: ParamSet<(
-        Query<&mut Text, With<HudInput>>,
-        Query<&mut Text, With<HudFeedback>>,
-        Query<&mut Text, With<RoundTotal>>,
-    )>,
+    mut texts: ParamSet<HudTextQueries>,
     word_list: Query<Entity, With<WordList>>,
 ) {
     let word = if input.typed.is_empty() {
@@ -689,4 +644,72 @@ fn refresh_hud(
                 });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standard_new_set_has_six_faces_on_each_of_sixteen_dice() {
+        assert_eq!(STANDARD_NEW_DICE.len(), 16);
+        assert!(STANDARD_NEW_DICE.iter().all(|die| die.len() == 6));
+        assert!(
+            STANDARD_NEW_DICE
+                .iter()
+                .flatten()
+                .any(|label| *label == "Qu")
+        );
+    }
+
+    #[test]
+    fn grid_positions_are_centered_and_distinct() {
+        let positions = grid_positions();
+        assert_eq!(positions.len(), 16);
+        assert!(positions.iter().all(|position| position.y == 0.0));
+        assert!((positions.iter().map(|position| position.x).sum::<f32>()).abs() < f32::EPSILON);
+        assert!((positions.iter().map(|position| position.z).sum::<f32>()).abs() < f32::EPSILON);
+        for (index, position) in positions.iter().enumerate() {
+            assert!(!positions[..index].contains(position));
+        }
+    }
+
+    #[test]
+    fn cube_orientations_are_unique_right_angle_rotations() {
+        let orientations = cube_orientations();
+        assert_eq!(orientations.len(), 24);
+        for orientation in orientations {
+            for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+                let rotated = orientation * axis;
+                assert!(rotated.x.abs() < 0.001 || (rotated.x.abs() - 1.0).abs() < 0.001);
+                assert!(rotated.y.abs() < 0.001 || (rotated.y.abs() - 1.0).abs() < 0.001);
+                assert!(rotated.z.abs() < 0.001 || (rotated.z.abs() - 1.0).abs() < 0.001);
+            }
+        }
+        for (index, orientation) in orientations.iter().enumerate() {
+            assert!(
+                orientations[..index]
+                    .iter()
+                    .all(|other| !orientation.abs_diff_eq(*other, 0.001)
+                        && !orientation.abs_diff_eq(-*other, 0.001))
+            );
+        }
+    }
+
+    #[test]
+    fn backspace_removes_typed_text_before_a_selected_path() {
+        let mut input = InputState {
+            path: vec![1, 2],
+            typed: "cat".into(),
+            ..default()
+        };
+
+        delete_last_input(&mut input);
+        assert_eq!(input.typed, "ca");
+        assert_eq!(input.path, vec![1, 2]);
+
+        input.typed.clear();
+        delete_last_input(&mut input);
+        assert_eq!(input.path, vec![1]);
+    }
 }
