@@ -6,8 +6,6 @@ use bevy::prelude::*;
 use bevy::reflect::TypePath;
 use word_grid_game_core::{CubeSet, Dictionary, GameRules};
 
-use crate::StartupSet;
-
 #[derive(Asset, TypePath, Debug)]
 pub(crate) struct DictionaryAsset(pub Dictionary);
 
@@ -39,6 +37,7 @@ impl AssetLoader for DictionaryAssetLoader {
 pub(crate) struct ContentCatalog {
     pub rules: GameRules,
     pub dictionary: Handle<DictionaryAsset>,
+    pub cube_scene: Handle<WorldAsset>,
 }
 
 pub struct ContentPlugin;
@@ -47,7 +46,7 @@ impl Plugin for ContentPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<DictionaryAsset>()
             .init_asset_loader::<DictionaryAssetLoader>()
-            .add_systems(Startup, load_content.in_set(StartupSet::Content));
+            .add_systems(Startup, load_content);
     }
 }
 
@@ -55,6 +54,7 @@ fn load_content(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(ContentCatalog {
         rules: GameRules::normal(CubeSet::standard_new()).expect("built-in Normal rules are valid"),
         dictionary: asset_server.load("dictionaries/twl06.wordlist"),
+        cube_scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/game_cube.glb")),
     });
 }
 

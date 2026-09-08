@@ -24,13 +24,17 @@ cargo run -p word-grid-solver -- --size 2 --min-length 3 --dict tests/fixtures/w
 
 The word list defaults to `twl06.txt` when `--dict` is not provided.
 
-## Game shell
+## Game
 
 ```sh
 cargo run -p word-grid-game
 ```
 
-The game currently contains only a basic implementation, and is still WIP
+The desktop client loads its content before presenting the Normal game preset.
+Each round animates the authoritative board roll, starts a three-minute timer
+after the dice settle, accepts clicked paths or typed words, and ends in a review
+screen. You can play additional rounds, finish the match to see the cumulative
+score, and return to the menu without restarting the application.
 
 ## Local quality checks
 

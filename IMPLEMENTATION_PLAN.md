@@ -107,22 +107,28 @@ Dependencies: game-core match and solver APIs are stable enough for integration.
 - [x] Run `cargo clippy --workspace --all-targets --locked -- -D warnings`.
 - [x] Run `cargo test --workspace --locked`.
 - [x] Run `cargo check --workspace --all-targets --locked`.
-- [ ] Confirm `ARCHITECTURE.md` describes the implementation and close Phase 1.
+- [x] Confirm `ARCHITECTURE.md` describes the implementation and close Phase 1.
 
 ## Phase 2 — Complete Solo Round
 
 Dependencies: Phase 1 verification gate.
 
-- [ ] Add loading and main-menu screens.
-- [ ] Allow selection of the Normal preset before constructing a match.
-- [ ] Animate cubes toward the already-authoritative roll.
-- [ ] Start authoritative time and timed music when rolling completes.
-- [ ] Transition automatically to round review when time expires.
-- [ ] Add next-round and finish-match actions with cumulative totals.
-- [ ] Add integration tests for a complete multi-round solo match.
+- [x] Add loading and main-menu screens, including visible asset-load failure
+  feedback.
+- [x] Allow selection of the Normal preset before constructing a match.
+- [x] Animate cubes toward the already-authoritative roll.
+- [x] Start authoritative time and timed procedural music when rolling completes.
+- [x] Transition automatically to round review when time expires.
+- [x] Add next-round and finish-match actions with cumulative totals.
+- [x] Add integration tests for a complete multi-round solo match and state
+  projection tests for the client lifecycle.
+- [x] Run formatting, Clippy with warnings denied, workspace tests, and all-target
+  compilation.
+- [~] Complete a desktop smoke test in which a player finishes multiple timed
+  rounds, views the final match total, and returns to the menu without restarting
+  the application.
 
-Acceptance gate: a player can complete multiple timed rounds and view the final
-match total without restarting the application.
+Acceptance gate: the desktop smoke test above is confirmed.
 
 ## Phase 3 — Modes and Configuration
 

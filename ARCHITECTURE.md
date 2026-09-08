@@ -24,8 +24,12 @@ unrelated systems.
 
 ## Non-goals
 
-- Phase 1 does not add menus, polished rolling, music, custom-content file
-  formats, networking, persistence, or accounts.
+- This document does not prescribe visual polish, music composition, or a
+  particular menu design. Those remain presentation concerns within the client
+  boundaries below.
+- Custom-content file formats, networking, persistence, and accounts are not
+  part of the current architecture until their product requirements are
+  concrete.
 - The core is not an event-sourced framework and does not introduce traits for
   every operation. Abstractions are added at real nondeterministic or platform
   boundaries.
@@ -121,10 +125,11 @@ The client is composed from plugins with one clear lifecycle each:
 - `ContentPlugin` provides built-in content and platform-neutral loading.
 - `FlowPlugin` owns top-level `Screen` and match-only `RoundScreen` projections.
 - `MatchPlugin` owns `ActiveMatch` and is the only plugin that mutates it.
-- `BoardPlugin` owns cube presentation, picking, layouts, highlights, and future
-  roll animation.
+- `BoardPlugin` owns cube presentation, picking, layouts, highlights, and roll
+  animation toward the authoritative board result.
 - `HudPlugin` owns the input draft, feedback, found-word list, and scores.
-- `AudioPlugin` will react to match notices when audio is introduced.
+- `GameAudioPlugin` derives timed procedural music and transition cues from the
+  authoritative round lifecycle.
 
 Plugins may use private helper modules rather than creating a plugin for every
 file. Cross-plugin behavior uses typed messages and an explicit schedule:
@@ -140,9 +145,23 @@ draft updates        Match mutation        HUD / board / audio
 consumers. Direct domain mutation from board or HUD systems is not permitted.
 
 Top-level screens are Loading, Menu, and Match. While a match screen is active,
-its projected round screen is Rolling, Playing, or Review. Phase 1 may enter the
-match screen directly to preserve today's runnable shell; later phases add the
-loading and menu experiences.
+its projected round screen is Rolling, Playing, or Review. `MatchPhase` remains
+the authority for every transition; the Bevy states only select systems and
+scope presentation entities.
+
+```text
+Loading -> Menu -> Match/Rolling -> Match/Playing -> Match/Review
+             ^                              ^              |
+             |                              | next round   |
+             | return after final result    +--------------+
+             +---------------------------------------------+
+```
+
+Loading waits for the dictionary and cube scene, then the Normal menu action
+constructs a match. The rolling presentation reports completion before the core
+starts its authoritative timer. Timer expiry produces an immutable round result;
+review can either start another authoritative roll or finish the match and show
+cumulative totals.
 
 ## Content and Platform Boundaries
 

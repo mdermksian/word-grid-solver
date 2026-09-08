@@ -5,15 +5,16 @@ use std::collections::{HashMap, HashSet};
 
 use ab_glyph::{Font, FontArc, GlyphId, PxScale, ScaleFont, point};
 use bevy::asset::RenderAssetUsages;
+use bevy::ecs::system::SystemParam;
 use bevy::picking::prelude::*;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use word_grid_game_core::CubeSet;
+use word_grid_game_core::{CubeSet, MatchPhase};
 
-use crate::StartupSet;
+use crate::content::ContentCatalog;
 use crate::flow::{RoundScreen, Screen};
 use crate::hud::InputDraft;
-use crate::match_plugin::{ActiveMatch, GameSet, MatchNotice};
+use crate::match_plugin::{ActiveMatch, GameSet, MatchNotice, PlayerIntent};
 
 const DIE_SIZE: f32 = 1.0;
 const DIE_SPACING: f32 = 1.25;
@@ -23,6 +24,33 @@ const LABEL_FACE_SIZE: f32 = 1.64;
 
 #[derive(Component)]
 struct DieCell(usize);
+
+#[derive(Component)]
+struct BoardDie;
+
+#[derive(Component)]
+struct RollingDie {
+    start: Vec3,
+    target: Vec3,
+    target_rotation: Quat,
+    elapsed: f32,
+    delay: f32,
+    duration: f32,
+    turns: f32,
+}
+
+#[derive(Resource, Default)]
+struct RollAnimationState {
+    active: bool,
+    notified: bool,
+}
+
+#[derive(SystemParam)]
+struct BoardAssets<'w> {
+    meshes: ResMut<'w, Assets<Mesh>>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+    images: ResMut<'w, Assets<Image>>,
+}
 
 #[derive(Resource, Default)]
 struct HighlightState(Option<WordHighlight>);
@@ -37,7 +65,18 @@ pub struct BoardPlugin;
 impl Plugin for BoardPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HighlightState>()
-            .add_systems(Startup, setup_scene.in_set(StartupSet::Presentation))
+            .init_resource::<RollAnimationState>()
+            .add_systems(OnEnter(Screen::Match), setup_environment)
+            .add_systems(
+                OnEnter(RoundScreen::Rolling),
+                (clear_board, spawn_board).chain(),
+            )
+            .add_systems(
+                Update,
+                animate_roll
+                    .in_set(GameSet::Presentation)
+                    .run_if(in_state(RoundScreen::Rolling)),
+            )
             .add_systems(
                 Update,
                 (consume_notices, tick_highlight, draw_highlight)
@@ -47,13 +86,11 @@ impl Plugin for BoardPlugin {
     }
 }
 
-fn setup_scene(
+fn setup_environment(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
     game: Res<ActiveMatch>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
 ) {
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(1.0, 0.93, 0.82),
@@ -61,15 +98,11 @@ fn setup_scene(
         affects_lightmapped_meshes: true,
     });
 
-    let label_mesh = meshes.add(Rectangle::new(LABEL_FACE_SIZE, LABEL_FACE_SIZE));
     let table_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.31, 0.14, 0.06),
         perceptual_roughness: 0.78,
         ..default()
     });
-    let cube_set = game.0.rules().cube_set();
-    let label_materials = label_materials(cube_set, &mut images, &mut materials);
-
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(100.0, 100.0))),
         MeshMaterial3d(table_material),
@@ -94,7 +127,33 @@ fn setup_scene(
         Transform::from_xyz(4.0, camera_height, 0.0).looking_at(Vec3::new(0.0, 0.3, 0.0), Vec3::Y),
         DespawnOnExit(Screen::Match),
     ));
+}
 
+fn clear_board(mut commands: Commands, dice: Query<Entity, With<BoardDie>>) {
+    for entity in &dice {
+        commands.entity(entity).despawn();
+    }
+}
+
+fn spawn_board(
+    mut commands: Commands,
+    catalog: Res<ContentCatalog>,
+    game: Res<ActiveMatch>,
+    mut assets: BoardAssets,
+    mut roll_state: ResMut<RollAnimationState>,
+    mut highlight: ResMut<HighlightState>,
+) {
+    roll_state.active = true;
+    roll_state.notified = false;
+    highlight.0 = None;
+
+    let label_mesh = assets
+        .meshes
+        .add(Rectangle::new(LABEL_FACE_SIZE, LABEL_FACE_SIZE));
+    let cube_set = game.0.rules().cube_set();
+    let label_materials = label_materials(cube_set, &mut assets.images, &mut assets.materials);
+
+    let grid_size = game.0.rules().grid_size();
     let positions = grid_positions(grid_size);
     let board = game
         .0
@@ -110,15 +169,30 @@ fn setup_scene(
             Quat::from_rotation_y(position_index as f32 % 4.0 * std::f32::consts::FRAC_PI_2)
         };
         let displayed_labels = displayed_labels(cube.faces(), rolled.face_index());
+        let target = positions[position_index] + Vec3::Y * (DIE_SIZE / 2.0);
+        let column_offset = position_index % grid_size;
+        let start = target
+            + Vec3::new(
+                (column_offset as f32 - (grid_size - 1) as f32 / 2.0) * 0.35,
+                3.8 + (position_index % 3) as f32 * 0.35,
+                (position_index / grid_size) as f32 * 0.22 - 0.4,
+            );
         let mut die = commands.spawn((
             Name::new(format!("Die {}", position_index + 1)),
+            BoardDie,
             DieCell(position_index),
             Pickable::default(),
-            WorldAssetRoot(
-                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/game_cube.glb")),
-            ),
-            Transform::from_translation(positions[position_index] + Vec3::Y * (DIE_SIZE / 2.0))
-                .with_rotation(rotation),
+            WorldAssetRoot(catalog.cube_scene.clone()),
+            Transform::from_translation(start),
+            RollingDie {
+                start,
+                target,
+                target_rotation: rotation,
+                elapsed: 0.0,
+                delay: (position_index % grid_size) as f32 * 0.055,
+                duration: 1.15 + (position_index % 3) as f32 * 0.08,
+                turns: 2.0 + (position_index % 4) as f32 * 0.5,
+            },
             DespawnOnExit(Screen::Match),
         ));
 
@@ -133,6 +207,38 @@ fn setup_scene(
                 ));
             }
         });
+    }
+}
+
+fn animate_roll(
+    time: Res<Time>,
+    mut dice: Query<(&mut Transform, &mut RollingDie)>,
+    mut state: ResMut<RollAnimationState>,
+    mut intents: MessageWriter<PlayerIntent>,
+) {
+    if !state.active || state.notified || dice.is_empty() {
+        return;
+    }
+    let mut finished = true;
+    for (mut transform, mut rolling) in &mut dice {
+        rolling.elapsed += time.delta_secs();
+        let progress = ((rolling.elapsed - rolling.delay) / rolling.duration).clamp(0.0, 1.0);
+        let eased = 1.0 - (1.0 - progress).powi(3);
+        let bounce = (progress * std::f32::consts::PI).sin() * (1.0 - progress) * 0.7;
+        transform.translation = rolling.start.lerp(rolling.target, eased) + Vec3::Y * bounce;
+        let remaining_spin = (1.0 - eased) * std::f32::consts::TAU * rolling.turns;
+        transform.rotation = rolling.target_rotation
+            * Quat::from_euler(
+                EulerRot::XYZ,
+                remaining_spin,
+                remaining_spin * 0.73,
+                remaining_spin * 0.41,
+            );
+        finished &= progress >= 1.0;
+    }
+    if finished {
+        state.notified = true;
+        intents.write(PlayerIntent::RollComplete);
     }
 }
 
@@ -335,6 +441,10 @@ fn select_die(
     let Ok(cell) = cells.get(event.entity) else {
         return;
     };
+    if game.0.phase() != MatchPhase::Playing {
+        input.feedback = "Wait for the dice to settle.".into();
+        return;
+    }
     if input.path.contains(&cell.0) {
         input.feedback = "A die cannot be reused.".into();
         return;
