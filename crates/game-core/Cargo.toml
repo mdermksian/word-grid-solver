@@ -1,0 +1,10 @@
+[package]
+name = "word-grid-game-core"
+version.workspace = true
+edition.workspace = true
+description = "Pure rules and match state for the word grid game."
+license.workspace = true
+
+[dependencies]
+rand = "0.10"
+word-grid-solver-core.workspace = true

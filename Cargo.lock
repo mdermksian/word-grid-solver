@@ -6056,6 +6056,14 @@ dependencies = [
  "ab_glyph",
  "bevy",
  "rand",
+ "word-grid-game-core",
+]
+
+[[package]]
+name = "word-grid-game-core"
+version = "0.1.0"
+dependencies = [
+ "rand",
  "word-grid-solver-core",
 ]
 
@@ -6063,6 +6071,7 @@ dependencies = [
 name = "word-grid-solver"
 version = "0.1.0"
 dependencies = [
+ "word-grid-game-core",
  "word-grid-solver-core",
 ]
 

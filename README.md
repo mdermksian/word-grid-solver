@@ -1,6 +1,20 @@
 # word-grid-solver
 
-Find and score words on a square letter grid. The repository is now a Cargo workspace with a reusable solver library, a CLI, and a Bevy game shell.
+Find and score words on a square letter grid. The repository is a Cargo
+workspace with a reusable solver library, a pure game-rules library, a CLI, and
+a Bevy game client.
+
+The long-term dependency and state-ownership rules are documented in
+[`ARCHITECTURE.md`](ARCHITECTURE.md). Incremental implementation status and the
+feature roadmap live in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
+
+## Workspace structure
+
+- `crates/solver`: dictionaries, grids, paths, and deterministic word discovery.
+- `crates/game-core`: validated rules and authoritative match state without Bevy
+  or platform I/O.
+- `crates/game`: the plugin-oriented Bevy client.
+- `crates/cli`: the command-line solver and standard game scoring adapter.
 
 ## CLI usage
 

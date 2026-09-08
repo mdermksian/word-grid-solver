@@ -5,7 +5,8 @@ use std::env;
 use std::path::PathBuf;
 use std::process;
 
-use word_grid_solver::{Dictionary, GridSolver, WordGrid, format_results, format_word_grid};
+use word_grid_game_core::ScoringTable;
+use word_grid_solver::{Dictionary, FoundWord, GridSolver, WordGrid, format_word_grid};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Config {
@@ -35,9 +36,33 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
     let results = solver.find_words(&grid);
 
     println!("{}", format_word_grid(&grid));
-    println!("{}", format_results(&results));
+    println!("{}", format_results(&results, &ScoringTable::standard()));
 
     Ok(())
+}
+
+fn format_results(results: &[FoundWord], scoring: &ScoringTable) -> String {
+    let mut output = String::from("Words found:\n");
+    let mut total_score = 0;
+
+    for result in results {
+        let score = scoring.score_word(&result.word);
+        total_score += score;
+        output.push_str(&result.word);
+        output.push('\t');
+        if result.word.len() < 8 {
+            output.push('\t');
+        }
+        output.push_str(&score.to_string());
+        output.push('\n');
+    }
+
+    output.push_str("------------------------------------\n");
+    output.push_str(&format!(
+        "Total number of words: {}, Total score: {total_score}",
+        results.len()
+    ));
+    output
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config, String> {

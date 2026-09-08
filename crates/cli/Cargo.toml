@@ -10,4 +10,5 @@ name = "word-grid-solver"
 path = "src/main.rs"
 
 [dependencies]
+word-grid-game-core.workspace = true
 word-grid-solver-core.workspace = true
