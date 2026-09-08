@@ -7,7 +7,10 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use word_grid_game_core::MatchPhase;
+use word_grid_solver::{FoundWord, GridSolver};
 
+use crate::board::BoardHighlightRequest;
+use crate::content::{ContentCatalog, DictionaryAsset};
 use crate::flow::{RoundScreen, Screen};
 use crate::match_plugin::{ActiveMatch, GameSet, LOCAL_PLAYER, MatchNotice, PlayerIntent};
 
@@ -24,7 +27,19 @@ struct RoundTotal;
 struct RoundTimer;
 
 #[derive(Component)]
+struct EndRoundButton;
+
+#[derive(Component)]
 struct WordList;
+
+#[derive(Component)]
+struct ReviewWordList;
+
+#[derive(Component)]
+struct ReviewWord {
+    path: Vec<usize>,
+    was_submitted: bool,
+}
 
 #[derive(Component)]
 struct ReviewTitle;
@@ -55,6 +70,11 @@ struct RenderedWordList {
     active: bool,
 }
 
+#[derive(Resource, Default)]
+struct ReviewSolution {
+    words: Vec<FoundWord>,
+}
+
 type HudTextQueries<'w, 's> = (
     Query<'w, 's, &'static mut Text, With<HudInput>>,
     Query<'w, 's, &'static mut Text, With<HudFeedback>>,
@@ -82,6 +102,28 @@ type ReviewButtonQuery<'w, 's> = Query<
     (Changed<Interaction>, With<Button>),
 >;
 
+type ReviewWordButtonQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static Interaction,
+        &'static ReviewWord,
+        &'static mut BackgroundColor,
+    ),
+    (Changed<Interaction>, With<Button>),
+>;
+
+type ScrollableWordListQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut ScrollPosition,
+        &'static ComputedNode,
+        Has<ReviewWordList>,
+    ),
+    Or<(With<WordList>, With<ReviewWordList>)>,
+>;
+
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
@@ -91,24 +133,28 @@ impl Plugin for HudPlugin {
             ..default()
         })
         .init_resource::<RenderedWordList>()
+        .init_resource::<ReviewSolution>()
         .add_systems(OnEnter(Screen::Match), setup_hud)
-        .add_systems(OnEnter(RoundScreen::Review), setup_review)
+        .add_systems(
+            OnEnter(RoundScreen::Review),
+            (prepare_review_solution, setup_review).chain(),
+        )
         .add_systems(
             Update,
-            keyboard_input
+            (keyboard_input, end_round_button)
                 .in_set(GameSet::Input)
                 .run_if(in_state(RoundScreen::Playing)),
         )
         .add_systems(
             Update,
-            review_buttons
+            (review_buttons, review_word_buttons)
                 .in_set(GameSet::Input)
                 .run_if(in_state(RoundScreen::Review)),
         )
         .add_systems(
             Update,
             (
-                scroll_found_words,
+                scroll_word_lists,
                 (consume_notices, refresh_hud, refresh_review).chain(),
             )
                 .in_set(GameSet::Presentation)
@@ -118,22 +164,57 @@ impl Plugin for HudPlugin {
     }
 }
 
-fn setup_review(mut commands: Commands) {
+fn prepare_review_solution(
+    game: Res<ActiveMatch>,
+    catalog: Res<ContentCatalog>,
+    dictionaries: Res<Assets<DictionaryAsset>>,
+    mut solution: ResMut<ReviewSolution>,
+) {
+    let Some(round) = game.0.completed_rounds().last() else {
+        solution.words.clear();
+        return;
+    };
+    let Some(dictionary) = dictionaries.get(&catalog.dictionary) else {
+        solution.words.clear();
+        return;
+    };
+
+    solution.words = GridSolver::new(dictionary.0.clone(), game.0.rules().minimum_word_length())
+        .find_words(round.board().grid());
+    sort_solved_words(&mut solution.words);
+}
+
+fn setup_review(mut commands: Commands, game: Res<ActiveMatch>, solution: Res<ReviewSolution>) {
+    let submitted = game
+        .0
+        .completed_rounds()
+        .last()
+        .and_then(|round| round.player(LOCAL_PLAYER))
+        .map(|result| {
+            result
+                .scored()
+                .iter()
+                .chain(result.canceled())
+                .map(|submission| submission.word())
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+
     commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Percent(50.0),
-                top: Val::Percent(50.0),
-                width: Val::Px(440.0),
-                padding: UiRect::all(Val::Px(28.0)),
+                right: Val::Px(16.0),
+                top: Val::Px(16.0),
+                bottom: Val::Px(16.0),
+                width: Val::Px(360.0),
+                padding: UiRect::all(Val::Px(20.0)),
                 flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                row_gap: Val::Px(18.0),
+                align_items: AlignItems::Stretch,
+                row_gap: Val::Px(12.0),
                 border_radius: BorderRadius::all(Val::Px(16.0)),
                 ..default()
             },
-            UiTransform::from_translation(Val2::px(-130.0, -170.0)),
             BackgroundColor(Color::srgba(0.08, 0.06, 0.04, 0.96)),
             DespawnOnExit(RoundScreen::Review),
         ))
@@ -156,13 +237,89 @@ fn setup_review(mut commands: Commands) {
                 TextColor::WHITE,
                 ReviewSummary,
             ));
+            parent.spawn((
+                Text::new(format!("ALL SOLUTIONS · {}", solution.words.len())),
+                TextFont {
+                    font_size: FontSize::Px(17.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(1.0, 0.82, 0.35)),
+            ));
+            parent
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        min_height: Val::Px(80.0),
+                        flex_grow: 1.0,
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(5.0),
+                        overflow: Overflow::scroll_y(),
+                        ..default()
+                    },
+                    ScrollPosition::default(),
+                    ReviewWordList,
+                ))
+                .with_children(|list| {
+                    for solved in &solution.words {
+                        let was_submitted = submitted.contains(solved.word.as_str());
+                        list.spawn((
+                            Button,
+                            ReviewWord {
+                                path: solved.path.clone(),
+                                was_submitted,
+                            },
+                            Node {
+                                width: Val::Percent(100.0),
+                                min_height: Val::Px(36.0),
+                                padding: UiRect::horizontal(Val::Px(10.0)),
+                                align_items: AlignItems::Center,
+                                justify_content: JustifyContent::SpaceBetween,
+                                border_radius: BorderRadius::all(Val::Px(6.0)),
+                                ..default()
+                            },
+                            BackgroundColor(if was_submitted {
+                                Color::srgb(0.12, 0.32, 0.18)
+                            } else {
+                                Color::srgb(0.22, 0.15, 0.1)
+                            }),
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                Text::new(if was_submitted {
+                                    format!("✓ {}", solved.word.to_uppercase())
+                                } else {
+                                    solved.word.to_uppercase()
+                                }),
+                                TextFont {
+                                    font_size: FontSize::Px(18.0),
+                                    ..default()
+                                },
+                                TextColor::WHITE,
+                            ));
+                            button.spawn((
+                                Text::new(
+                                    game.0
+                                        .rules()
+                                        .scoring()
+                                        .score_word(&solved.word)
+                                        .to_string(),
+                                ),
+                                TextFont {
+                                    font_size: FontSize::Px(17.0),
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(1.0, 0.82, 0.35)),
+                            ));
+                        });
+                    }
+                });
             parent
                 .spawn((
                     Button,
                     NextRoundButton,
                     Node {
-                        width: Val::Px(300.0),
-                        height: Val::Px(54.0),
+                        width: Val::Percent(100.0),
+                        height: Val::Px(48.0),
                         align_items: AlignItems::Center,
                         justify_content: JustifyContent::Center,
                         border_radius: BorderRadius::all(Val::Px(8.0)),
@@ -178,8 +335,8 @@ fn setup_review(mut commands: Commands) {
                     Button,
                     FinishMatchButton,
                     Node {
-                        width: Val::Px(300.0),
-                        height: Val::Px(54.0),
+                        width: Val::Percent(100.0),
+                        height: Val::Px(48.0),
                         align_items: AlignItems::Center,
                         justify_content: JustifyContent::Center,
                         border_radius: BorderRadius::all(Val::Px(8.0)),
@@ -195,8 +352,8 @@ fn setup_review(mut commands: Commands) {
                     Button,
                     ReturnToMenuButton,
                     Node {
-                        width: Val::Px(300.0),
-                        height: Val::Px(54.0),
+                        width: Val::Percent(100.0),
+                        height: Val::Px(48.0),
                         display: Display::None,
                         align_items: AlignItems::Center,
                         justify_content: JustifyContent::Center,
@@ -211,6 +368,17 @@ fn setup_review(mut commands: Commands) {
         });
 }
 
+fn sort_solved_words(words: &mut [FoundWord]) {
+    words.sort_by(|left, right| {
+        right
+            .word
+            .chars()
+            .count()
+            .cmp(&left.word.chars().count())
+            .then_with(|| left.word.cmp(&right.word))
+    });
+}
+
 fn review_buttons(interactions: ReviewButtonQuery, mut intents: MessageWriter<PlayerIntent>) {
     for (interaction, next_round, finish_match, return_to_menu) in &interactions {
         if *interaction != Interaction::Pressed {
@@ -222,6 +390,36 @@ fn review_buttons(interactions: ReviewButtonQuery, mut intents: MessageWriter<Pl
             intents.write(PlayerIntent::FinishMatch);
         } else if return_to_menu {
             intents.write(PlayerIntent::LeaveMatch);
+        }
+    }
+}
+
+fn review_word_buttons(
+    mut interactions: ReviewWordButtonQuery,
+    mut highlights: MessageWriter<BoardHighlightRequest>,
+) {
+    for (interaction, word, mut background) in &mut interactions {
+        match interaction {
+            Interaction::Pressed => {
+                background.0 = Color::srgb(0.76, 0.3, 0.08);
+                highlights.write(BoardHighlightRequest {
+                    path: word.path.clone(),
+                });
+            }
+            Interaction::Hovered => {
+                background.0 = if word.was_submitted {
+                    Color::srgb(0.18, 0.46, 0.25)
+                } else {
+                    Color::srgb(0.42, 0.22, 0.1)
+                };
+            }
+            Interaction::None => {
+                background.0 = if word.was_submitted {
+                    Color::srgb(0.12, 0.32, 0.18)
+                } else {
+                    Color::srgb(0.22, 0.15, 0.1)
+                };
+            }
         }
     }
 }
@@ -323,7 +521,37 @@ fn setup_hud(mut commands: Commands) {
                 TextColor::WHITE,
                 RoundTotal,
             ));
+            parent
+                .spawn((
+                    Button,
+                    EndRoundButton,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Px(46.0),
+                        display: Display::None,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        border_radius: BorderRadius::all(Val::Px(8.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.28, 0.18, 0.11)),
+                ))
+                .with_children(|button| {
+                    button.spawn((Text::new("END ROUND EARLY"), TextColor::WHITE));
+                });
         });
+}
+
+fn end_round_button(
+    buttons: Query<&Interaction, (Changed<Interaction>, With<EndRoundButton>)>,
+    mut intents: MessageWriter<PlayerIntent>,
+) {
+    if buttons
+        .iter()
+        .any(|interaction| *interaction == Interaction::Pressed)
+    {
+        intents.write(PlayerIntent::EndRound);
+    }
 }
 
 fn keyboard_input(
@@ -403,9 +631,10 @@ fn consume_notices(mut notices: MessageReader<MatchNotice>, mut input: ResMut<In
     }
 }
 
-fn scroll_found_words(
+fn scroll_word_lists(
     mut wheel_events: MessageReader<MouseWheel>,
-    mut lists: Query<(&mut ScrollPosition, &ComputedNode), With<WordList>>,
+    round_screen: Res<State<RoundScreen>>,
+    mut lists: ScrollableWordListQuery,
 ) {
     let mut delta = 0.0;
     for event in wheel_events.read() {
@@ -420,7 +649,11 @@ fn scroll_found_words(
         return;
     }
 
-    for (mut position, computed) in &mut lists {
+    let reviewing = *round_screen.get() == RoundScreen::Review;
+    for (mut position, computed, review_list) in &mut lists {
+        if review_list != reviewing {
+            continue;
+        }
         let max_offset = (computed.content_size().y - computed.size().y).max(0.0)
             * computed.inverse_scale_factor();
         position.y = (position.y + delta).clamp(0.0, max_offset);
@@ -433,6 +666,7 @@ fn refresh_hud(
     mut commands: Commands,
     mut texts: ParamSet<HudTextQueries>,
     word_list: Query<Entity, With<WordList>>,
+    mut end_round: Query<&mut Node, With<EndRoundButton>>,
     mut rendered: ResMut<RenderedWordList>,
 ) {
     let word = if input.typed.is_empty() {
@@ -466,6 +700,13 @@ fn refresh_hud(
             || "00:00".into(),
             |round| format_duration(round.remaining()),
         );
+    }
+    if let Ok(mut node) = end_round.single_mut() {
+        node.display = if game.0.phase() == MatchPhase::Playing {
+            Display::Flex
+        } else {
+            Display::None
+        };
     }
 
     let mut words = if let Some(round) = game.0.current_round() {
@@ -556,7 +797,11 @@ fn refresh_hud(
     });
 }
 
-fn refresh_review(game: Res<ActiveMatch>, mut queries: ParamSet<ReviewQueries>) {
+fn refresh_review(
+    game: Res<ActiveMatch>,
+    solution: Res<ReviewSolution>,
+    mut queries: ParamSet<ReviewQueries>,
+) {
     let complete = game.0.phase() == MatchPhase::Complete;
     {
         let mut titles = queries.p0();
@@ -591,7 +836,8 @@ fn refresh_review(game: Res<ActiveMatch>, mut queries: ParamSet<ReviewQueries>) 
             )
         } else {
             format!(
-                "Words found: {word_count}\nRound score: {round_score}\nMatch total: {total_score}"
+                "Words found: {word_count} of {}\nRound score: {round_score}\nMatch total: {total_score}",
+                solution.words.len()
             )
         };
     }
@@ -630,7 +876,9 @@ fn format_duration(duration: Option<Duration>) -> String {
 mod tests {
     use std::time::Duration;
 
-    use super::{InputDraft, delete_last_input, format_duration};
+    use word_grid_solver::FoundWord;
+
+    use super::{InputDraft, delete_last_input, format_duration, sort_solved_words};
 
     #[test]
     fn backspace_removes_typed_text_before_a_selected_path() {
@@ -657,5 +905,26 @@ mod tests {
         );
         assert_eq!(format_duration(Some(Duration::from_secs(9))), "00:09");
         assert_eq!(format_duration(None), "∞");
+    }
+
+    #[test]
+    fn review_words_sort_longest_first_then_alphabetically() {
+        let mut words = ["dog", "apple", "ape", "apply"]
+            .into_iter()
+            .map(|word| FoundWord {
+                word: word.into(),
+                path: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+
+        sort_solved_words(&mut words);
+
+        assert_eq!(
+            words
+                .into_iter()
+                .map(|found| found.word)
+                .collect::<Vec<_>>(),
+            ["apple", "apply", "ape", "dog"]
+        );
     }
 }

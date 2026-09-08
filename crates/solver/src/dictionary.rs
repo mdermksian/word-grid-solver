@@ -5,11 +5,12 @@ use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct Dictionary {
-    words: HashSet<String>,
-    prefixes: HashSet<String>,
+    words: Arc<HashSet<String>>,
+    prefixes: Arc<HashSet<String>>,
 }
 
 impl Dictionary {
@@ -49,8 +50,8 @@ impl Dictionary {
         }
 
         Self {
-            words: dictionary,
-            prefixes,
+            words: Arc::new(dictionary),
+            prefixes: Arc::new(prefixes),
         }
     }
 

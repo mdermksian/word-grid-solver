@@ -60,12 +60,18 @@ struct WordHighlight {
     timer: Timer,
 }
 
+#[derive(Debug, Clone, Message)]
+pub(crate) struct BoardHighlightRequest {
+    pub path: Vec<usize>,
+}
+
 pub struct BoardPlugin;
 
 impl Plugin for BoardPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HighlightState>()
             .init_resource::<RollAnimationState>()
+            .add_message::<BoardHighlightRequest>()
             .add_systems(OnEnter(Screen::Match), setup_environment)
             .add_systems(
                 OnEnter(RoundScreen::Rolling),
@@ -79,9 +85,10 @@ impl Plugin for BoardPlugin {
             )
             .add_systems(
                 Update,
-                (consume_notices, tick_highlight, draw_highlight)
+                (consume_highlight_requests, tick_highlight, draw_highlight)
+                    .chain()
                     .in_set(GameSet::Presentation)
-                    .run_if(in_state(RoundScreen::Playing)),
+                    .run_if(in_state(Screen::Match)),
             );
     }
 }
@@ -471,15 +478,26 @@ fn select_die(
     );
 }
 
-fn consume_notices(mut notices: MessageReader<MatchNotice>, mut highlight: ResMut<HighlightState>) {
+fn consume_highlight_requests(
+    mut notices: MessageReader<MatchNotice>,
+    mut requests: MessageReader<BoardHighlightRequest>,
+    mut highlight: ResMut<HighlightState>,
+) {
     for notice in notices.read() {
         if let MatchNotice::SubmissionAccepted(submission) = notice {
-            highlight.0 = Some(WordHighlight {
-                path: submission.path().to_vec(),
-                timer: Timer::from_seconds(3.0, TimerMode::Once),
-            });
+            highlight_path(&mut highlight, submission.path());
         }
     }
+    for request in requests.read() {
+        highlight_path(&mut highlight, &request.path);
+    }
+}
+
+fn highlight_path(highlight: &mut HighlightState, path: &[usize]) {
+    highlight.0 = Some(WordHighlight {
+        path: path.to_vec(),
+        timer: Timer::from_seconds(3.0, TimerMode::Once),
+    });
 }
 
 fn tick_highlight(time: Res<Time>, mut highlight: ResMut<HighlightState>) {
@@ -507,9 +525,12 @@ fn draw_highlight(game: Res<ActiveMatch>, highlight: Res<HighlightState>, mut gi
 #[cfg(test)]
 mod tests {
     use super::{
-        cube_orientations, displayed_labels, face_layouts, grid_positions, orientation_for_top_face,
+        BoardHighlightRequest, HighlightState, consume_highlight_requests, cube_orientations,
+        displayed_labels, face_layouts, grid_positions, orientation_for_top_face,
     };
     use bevy::prelude::*;
+
+    use crate::match_plugin::MatchNotice;
 
     #[test]
     fn grid_positions_are_centered_for_multiple_sizes() {
@@ -555,6 +576,31 @@ mod tests {
         assert_eq!(
             displayed_labels(&one_face, 0),
             vec!["qu", "qu", "qu", "qu", "qu", "qu"]
+        );
+    }
+
+    #[test]
+    fn board_highlight_requests_use_the_existing_word_path_visualization() {
+        let mut app = App::new();
+        app.add_message::<MatchNotice>()
+            .add_message::<BoardHighlightRequest>()
+            .init_resource::<HighlightState>()
+            .add_systems(Update, consume_highlight_requests);
+
+        app.world_mut()
+            .write_message(BoardHighlightRequest {
+                path: vec![0, 1, 5],
+            })
+            .unwrap();
+        app.update();
+
+        assert_eq!(
+            app.world()
+                .resource::<HighlightState>()
+                .0
+                .as_ref()
+                .map(|highlight| highlight.path.as_slice()),
+            Some([0, 1, 5].as_slice())
         );
     }
 }

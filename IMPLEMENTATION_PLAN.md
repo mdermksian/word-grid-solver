@@ -122,6 +122,11 @@ Dependencies: Phase 1 verification gate.
 - [x] Add next-round and finish-match actions with cumulative totals.
 - [x] Add integration tests for a complete multi-round solo match and state
   projection tests for the client lifecycle.
+- [x] During review, show the complete solved-word list beside the retained board;
+  sort it by descending word length and then alphabetically, and let each word
+  replay its deterministic path through the existing board highlight.
+- [x] Let a player end the active round before its timer expires and enter the
+  same authoritative review flow as natural timer expiry.
 - [x] Run formatting, Clippy with warnings denied, workspace tests, and all-target
   compilation.
 - [~] Complete a desktop smoke test in which a player finishes multiple timed

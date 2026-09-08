@@ -34,8 +34,11 @@ cargo run -p word-grid-game
 The desktop client loads its content before presenting the Normal game preset.
 Each round animates the authoritative board roll, starts a three-minute timer
 after the dice settle, accepts clicked paths or typed words, and ends in a review
-screen. You can play additional rounds, finish the match to see the cumulative
-score, and return to the menu without restarting the application.
+screen when time expires or the player ends the round early. Review keeps the
+played board visible beside the complete solution list; clicking a solution
+draws its path on the board. You can play additional rounds, finish the match to
+see the cumulative score, and return to the menu without restarting the
+application.
 
 ## Local quality checks
 

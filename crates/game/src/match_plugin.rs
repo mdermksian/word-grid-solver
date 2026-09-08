@@ -23,6 +23,7 @@ pub enum PlayerIntent {
     RollComplete,
     SubmitPath(Vec<usize>),
     SubmitText(String),
+    EndRound,
     StartNextRound,
     FinishMatch,
     LeaveMatch,
@@ -130,6 +131,19 @@ fn apply_player_intents(
                     game.0.submit_text(LOCAL_PLAYER, word, &dictionary.0),
                     &mut notices,
                 );
+            }
+            PlayerIntent::EndRound => {
+                let Some(game) = game.as_mut() else {
+                    continue;
+                };
+                match game.0.finish_round() {
+                    Ok(result) => {
+                        notices.write(MatchNotice::RoundFinished(result));
+                    }
+                    Err(error) => {
+                        notices.write(MatchNotice::SubmissionRejected(error.to_string()));
+                    }
+                }
             }
             PlayerIntent::StartNextRound => {
                 let Some(game) = game.as_mut() else {
@@ -276,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn bridge_runs_a_complete_two_round_solo_match() {
+    fn bridge_supports_early_finish_and_timer_expiry_in_one_match() {
         let cubes = ["c", "a", "t", "s"].map(|face| Cube::new([face]).unwrap());
         let rules = GameRules::new(
             2,
@@ -332,10 +346,30 @@ mod tests {
                 .write_message(PlayerIntent::SubmitPath(vec![0, 1, 2]))
                 .unwrap();
             app.update();
-            app.world_mut()
-                .resource_mut::<Time<()>>()
-                .advance_by(Duration::from_secs(1));
-            app.update();
+            if round_index == 0 {
+                assert_eq!(
+                    app.world()
+                        .resource::<ActiveMatch>()
+                        .0
+                        .current_round()
+                        .and_then(|round| round.remaining()),
+                    Some(Duration::from_secs(1))
+                );
+                app.world_mut()
+                    .write_message(PlayerIntent::EndRound)
+                    .unwrap();
+                app.update();
+            } else {
+                app.world_mut()
+                    .resource_mut::<Time<()>>()
+                    .advance_by(Duration::from_secs(1));
+                app.update();
+            }
+
+            assert_eq!(
+                app.world().resource::<ActiveMatch>().0.phase(),
+                MatchPhase::Review
+            );
 
             if round_index == 0 {
                 app.world_mut()

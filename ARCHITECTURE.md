@@ -44,7 +44,8 @@ Dependencies point toward pure logic. Inner crates never import outer adapters.
 word-grid-solver CLI ───────────────┐
                                     v
 word-grid-game client ──> word-grid-game-core ──> word-grid-solver-core
-         |
+         |                                      ^
+         ├──────────────────────────────────────┘
          └──> Bevy, rendering, audio, assets, platform APIs
 ```
 
@@ -81,8 +82,11 @@ are private so invalid phase transitions cannot be manufactured by callers.
 
 Bevy owns presentation-only state such as the current text draft, selected-cell
 draft, entity handles, scroll position, animation timers, and temporary visual
-highlights. Bevy screen states are projections of `MatchPhase`; they exist to
-schedule systems and clean up entities, not to decide whether a move is legal.
+highlights. A review solution is also derived client state: the client runs the
+pure solver against an immutable completed-round board and the selected
+dictionary without adding that reproducible data to `Match`. Bevy screen states
+are projections of `MatchPhase`; they exist to schedule systems and clean up
+entities, not to decide whether a move is legal.
 
 The board roll follows one direction only:
 
@@ -127,7 +131,8 @@ The client is composed from plugins with one clear lifecycle each:
 - `MatchPlugin` owns `ActiveMatch` and is the only plugin that mutates it.
 - `BoardPlugin` owns cube presentation, picking, layouts, highlights, and roll
   animation toward the authoritative board result.
-- `HudPlugin` owns the input draft, feedback, found-word list, and scores.
+- `HudPlugin` owns the input draft, feedback, submitted-word list, derived review
+  solution, and scores.
 - `GameAudioPlugin` derives timed procedural music and transition cues from the
   authoritative round lifecycle.
 
@@ -142,7 +147,9 @@ draft updates        Match mutation        HUD / board / audio
 
 `PlayerIntent` expresses a user action without containing Bevy entities.
 `MatchNotice` reports domain outcomes that may have several presentation
-consumers. Direct domain mutation from board or HUD systems is not permitted.
+consumers. Presentation-only messages, such as requesting that the board display
+a solved-word path, may connect client plugins without passing through
+`MatchPlugin`. Direct domain mutation from board or HUD systems is not permitted.
 
 Top-level screens are Loading, Menu, and Match. While a match screen is active,
 its projected round screen is Rolling, Playing, or Review. `MatchPhase` remains

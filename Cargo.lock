@@ -6057,6 +6057,7 @@ dependencies = [
  "bevy",
  "rand",
  "word-grid-game-core",
+ "word-grid-solver-core",
 ]
 
 [[package]]
