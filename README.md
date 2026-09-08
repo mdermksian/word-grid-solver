@@ -22,7 +22,8 @@ feature roadmap live in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
 cargo run -p word-grid-solver -- --size 2 --min-length 3 --dict tests/fixtures/words.txt c a t s
 ```
 
-The word list defaults to `twl06.txt` when `--dict` is not provided.
+The word list defaults to `assets/dictionaries/twl06.txt` when `--dict` is not
+provided.
 
 ## Game
 

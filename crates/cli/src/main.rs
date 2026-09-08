@@ -68,7 +68,7 @@ fn format_results(results: &[FoundWord], scoring: &ScoringTable) -> String {
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config, String> {
     let mut size = None;
     let mut min_length = None;
-    let mut dict_path = PathBuf::from("twl06.txt");
+    let mut dict_path = PathBuf::from("assets/dictionaries/twl06.txt");
     let mut cells = Vec::new();
     let mut iter = args.into_iter();
 

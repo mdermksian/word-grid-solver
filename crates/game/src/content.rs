@@ -29,7 +29,7 @@ impl AssetLoader for DictionaryAssetLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["wordlist"]
+        &["txt"]
     }
 }
 
@@ -53,7 +53,7 @@ impl Plugin for ContentPlugin {
 fn load_content(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(ContentCatalog {
         rules: GameRules::normal(CubeSet::standard_new()).expect("built-in Normal rules are valid"),
-        dictionary: asset_server.load("dictionaries/twl06.wordlist"),
+        dictionary: asset_server.load("dictionaries/twl06.txt"),
         cube_scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/game_cube.glb")),
     });
 }
@@ -64,10 +64,9 @@ mod tests {
 
     #[test]
     fn bundled_dictionary_is_platform_neutral_text() {
-        let dictionary = Dictionary::from_bytes(include_bytes!(
-            "../../../assets/dictionaries/twl06.wordlist"
-        ))
-        .unwrap();
+        let dictionary =
+            Dictionary::from_bytes(include_bytes!("../../../assets/dictionaries/twl06.txt"))
+                .unwrap();
         assert!(dictionary.is_word_valid("word"));
     }
 }
