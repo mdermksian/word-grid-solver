@@ -876,9 +876,90 @@ fn format_duration(duration: Option<Duration>) -> String {
 mod tests {
     use std::time::Duration;
 
+    use bevy::{
+        gizmos::GizmoPlugin,
+        input::{keyboard::KeyboardInput, mouse::MouseWheel},
+        prelude::*,
+        state::app::StatesPlugin,
+    };
+    use word_grid_game_core::{CubeSet, GameRules};
     use word_grid_solver::FoundWord;
 
-    use super::{InputDraft, delete_last_input, format_duration, sort_solved_words};
+    use super::{
+        HudPlugin, InputDraft, ReturnToMenuButton, delete_last_input, format_duration,
+        sort_solved_words,
+    };
+    use crate::{
+        board::BoardPlugin,
+        content::{ContentCatalog, DictionaryAsset},
+        flow::{FlowPlugin, RoundScreen, Screen},
+        match_plugin::{ActiveMatch, GameSet, MatchPlugin, PlayerIntent},
+    };
+
+    #[test]
+    fn return_to_menu_after_review_removes_match_before_screen_transition() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            StatesPlugin,
+            GizmoPlugin,
+        ))
+        .insert_state(Screen::Menu)
+        .init_resource::<Assets<Mesh>>()
+        .init_resource::<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>()
+        .init_resource::<Assets<StandardMaterial>>()
+        .init_resource::<Assets<Image>>()
+        .init_resource::<Assets<DictionaryAsset>>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .insert_resource(ContentCatalog {
+            rules: GameRules::normal(CubeSet::standard_new()).unwrap(),
+            dictionary: Handle::default(),
+            cube_scene: Handle::default(),
+        })
+        .configure_sets(
+            Update,
+            (GameSet::Input, GameSet::Domain, GameSet::Presentation).chain(),
+        )
+        .add_plugins((FlowPlugin, MatchPlugin, BoardPlugin, HudPlugin));
+
+        for intent in [
+            PlayerIntent::StartNormal,
+            PlayerIntent::RollComplete,
+            PlayerIntent::EndRound,
+            PlayerIntent::FinishMatch,
+        ] {
+            app.world_mut().write_message(intent).unwrap();
+            app.update();
+            app.update();
+        }
+        assert_eq!(
+            *app.world().resource::<State<RoundScreen>>().get(),
+            RoundScreen::Review
+        );
+
+        let button = app
+            .world_mut()
+            .query_filtered::<Entity, With<ReturnToMenuButton>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(button)
+            .insert(Interaction::Pressed);
+        app.update();
+
+        assert!(!app.world().contains_resource::<ActiveMatch>());
+        assert_eq!(
+            *app.world().resource::<State<Screen>>().get(),
+            Screen::Match
+        );
+        app.update();
+        assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
+        assert!(!app.world().contains_resource::<State<RoundScreen>>());
+        app.update();
+    }
 
     #[test]
     fn backspace_removes_typed_text_before_a_selected_path() {

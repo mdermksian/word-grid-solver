@@ -88,7 +88,9 @@ impl Plugin for BoardPlugin {
                 (consume_highlight_requests, tick_highlight, draw_highlight)
                     .chain()
                     .in_set(GameSet::Presentation)
-                    .run_if(in_state(Screen::Match)),
+                    .run_if(in_state(Screen::Match))
+                    // Leaving removes the match before the next state transition.
+                    .run_if(resource_exists::<ActiveMatch>),
             );
     }
 }
