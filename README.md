@@ -1,6 +1,20 @@
 # word-grid-solver
 
-Find and score words on a square letter grid. The repository is now a Cargo workspace with a reusable solver library, a CLI, and a Bevy game shell.
+Find and score words on a square letter grid. The repository is a Cargo
+workspace with a reusable solver library, a pure game-rules library, a CLI, and
+a Bevy game client.
+
+The long-term dependency and state-ownership rules are documented in
+[`ARCHITECTURE.md`](ARCHITECTURE.md). Incremental implementation status and the
+feature roadmap live in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
+
+## Workspace structure
+
+- `crates/solver`: dictionaries, grids, paths, and deterministic word discovery.
+- `crates/game-core`: validated rules and authoritative match state without Bevy
+  or platform I/O.
+- `crates/game`: the plugin-oriented Bevy client.
+- `crates/cli`: the command-line solver and standard game scoring adapter.
 
 ## CLI usage
 
@@ -8,15 +22,23 @@ Find and score words on a square letter grid. The repository is now a Cargo work
 cargo run -p word-grid-solver -- --size 2 --min-length 3 --dict tests/fixtures/words.txt c a t s
 ```
 
-The word list defaults to `twl06.txt` when `--dict` is not provided.
+The word list defaults to `assets/dictionaries/twl06.txt` when `--dict` is not
+provided.
 
-## Game shell
+## Game
 
 ```sh
 cargo run -p word-grid-game
 ```
 
-The game currently contains only a basic implementation, and is still WIP
+The desktop client loads its content before presenting the Normal game preset.
+Each round animates the authoritative board roll, starts a three-minute timer
+after the dice settle, accepts clicked paths or typed words, and ends in a review
+screen when time expires or the player ends the round early. Review keeps the
+played board visible beside the complete solution list; clicking a solution
+draws its path on the board. You can play additional rounds, finish the match to
+see the cumulative score, and return to the menu without restarting the
+application.
 
 ## Local quality checks
 

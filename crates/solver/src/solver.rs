@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Michael Dermksian
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use crate::dictionary::Dictionary;
 use crate::grid::WordGrid;
-use crate::scoring::score_word;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WordResult {
+pub struct FoundWord {
     pub word: String,
-    pub score: usize,
+    pub path: Vec<usize>,
 }
 
 pub struct GridSolver {
@@ -26,27 +24,33 @@ impl GridSolver {
         }
     }
 
-    pub fn find_words(&self, grid: &WordGrid) -> Vec<WordResult> {
-        let mut found = HashSet::new();
+    pub fn find_words(&self, grid: &WordGrid) -> Vec<FoundWord> {
+        let mut found = HashMap::new();
         let mut visited = vec![false; grid.cells().len()];
+        let mut path = Vec::new();
 
         for index in 0..grid.cells().len() {
-            self.search(grid, index, &mut String::new(), &mut visited, &mut found);
+            self.search(
+                grid,
+                index,
+                &mut String::new(),
+                &mut visited,
+                &mut path,
+                &mut found,
+            );
         }
 
         let mut results: Vec<_> = found
             .into_iter()
-            .map(|word| {
-                let score = score_word(&word);
-                WordResult { word, score }
-            })
+            .map(|(word, path)| FoundWord { word, path })
             .collect();
 
         results.sort_by(|first, second| {
             second
                 .word
-                .len()
-                .cmp(&first.word.len())
+                .chars()
+                .count()
+                .cmp(&first.word.chars().count())
                 .then_with(|| first.word.cmp(&second.word))
         });
         results
@@ -58,7 +62,8 @@ impl GridSolver {
         index: usize,
         prefix: &mut String,
         visited: &mut [bool],
-        found: &mut HashSet<String>,
+        path: &mut Vec<usize>,
+        found: &mut HashMap<String, Vec<usize>>,
     ) {
         if visited[index] {
             return;
@@ -73,15 +78,17 @@ impl GridSolver {
         }
 
         visited[index] = true;
+        path.push(index);
 
-        if prefix.len() >= self.min_length && self.dictionary.is_word_valid(prefix) {
-            found.insert(prefix.clone());
+        if prefix.chars().count() >= self.min_length && self.dictionary.is_word_valid(prefix) {
+            found.entry(prefix.clone()).or_insert_with(|| path.clone());
         }
 
         for neighbor in grid.neighbors(index) {
-            self.search(grid, neighbor, prefix, visited, found);
+            self.search(grid, neighbor, prefix, visited, path, found);
         }
 
+        path.pop();
         visited[index] = false;
         prefix.truncate(original_len);
     }
@@ -89,7 +96,7 @@ impl GridSolver {
 
 #[cfg(test)]
 mod tests {
-    use super::{GridSolver, WordResult};
+    use super::{FoundWord, GridSolver};
     use crate::{Dictionary, WordGrid};
 
     #[test]
@@ -105,21 +112,21 @@ mod tests {
         assert_eq!(
             solver.find_words(&grid),
             vec![
-                WordResult {
+                FoundWord {
                     word: "cast".into(),
-                    score: 1
+                    path: vec![0, 1, 3, 2],
                 },
-                WordResult {
+                FoundWord {
                     word: "cats".into(),
-                    score: 1
+                    path: vec![0, 1, 2, 3],
                 },
-                WordResult {
+                FoundWord {
                     word: "cat".into(),
-                    score: 1
+                    path: vec![0, 1, 2],
                 },
-                WordResult {
+                FoundWord {
                     word: "sat".into(),
-                    score: 1
+                    path: vec![3, 1, 2],
                 },
             ]
         );

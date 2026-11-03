@@ -9,4 +9,5 @@ license.workspace = true
 ab_glyph = "0.2"
 bevy.workspace = true
 rand = "0.10"
+word-grid-game-core.workspace = true
 word-grid-solver-core.workspace = true
