@@ -6,6 +6,7 @@ mod audio;
 mod board;
 mod content;
 mod flow;
+mod game_setup;
 mod hud;
 mod match_plugin;
 

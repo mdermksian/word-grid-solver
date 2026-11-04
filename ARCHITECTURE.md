@@ -166,8 +166,12 @@ Loading -> Menu -> GameSetup -> Match/Rolling -> Match/Playing -> Match/Review
 
 Loading waits for the dictionary and cube scene, then the main menu offers
 Play game, Solve board (a placeholder), and Quit. Play game opens GameSetup,
-where Normal or Big constructs a match with the selected preset rules. A
-top-left Back button returns from GameSetup to Menu. The rolling presentation
+where a sidebar selects Standard or Big and a scrollable details panel renders
+that preset's `GameRules`, including its cube faces and scoring bands. Custom is
+visible but disabled. Standard is selected on entry; selection alone does not
+create a match. The lower-left Start game button sends the corresponding start
+intent, and a top-left Back button returns from GameSetup to Menu. `GameSetupPlugin`
+owns selection and preview UI; `MatchPlugin` still constructs the match. The rolling presentation
 reports completion before the core starts its authoritative timer. Timer expiry
 produces an immutable round result; review can either start another authoritative
 roll or finish the match and show cumulative totals.

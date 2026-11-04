@@ -238,7 +238,7 @@ fn setup_review(mut commands: Commands, game: Res<ActiveMatch>, solution: Res<Re
                 ReviewSummary,
             ));
             parent.spawn((
-                Text::new(format!("ALL SOLUTIONS · {}", solution.words.len())),
+                Text::new(format!("ALL SOLUTIONS - {}", solution.words.len())),
                 TextFont {
                     font_size: FontSize::Px(17.0),
                     ..default()
@@ -286,7 +286,7 @@ fn setup_review(mut commands: Commands, game: Res<ActiveMatch>, solution: Res<Re
                         .with_children(|button| {
                             button.spawn((
                                 Text::new(if was_submitted {
-                                    format!("✓ {}", solved.word.to_uppercase())
+                                    format!("[x] {}", solved.word.to_uppercase())
                                 } else {
                                     solved.word.to_uppercase()
                                 }),
@@ -602,7 +602,7 @@ fn consume_notices(mut notices: MessageReader<MatchNotice>, mut input: ResMut<In
             MatchNotice::RoundStarted => {
                 input.path.clear();
                 input.typed.clear();
-                input.feedback = "Rolling the dice…".into();
+                input.feedback = "Rolling the dice...".into();
             }
             MatchNotice::RoundBegan => {
                 input.feedback = "Go! Click adjacent dice or type a word.".into();
@@ -866,7 +866,7 @@ fn refresh_review(
 
 fn format_duration(duration: Option<Duration>) -> String {
     let Some(duration) = duration else {
-        return "∞".into();
+        return "NO LIMIT".into();
     };
     let seconds = duration.as_secs_f32().ceil() as u64;
     format!("{:02}:{:02}", seconds / 60, seconds % 60)
@@ -881,6 +881,7 @@ mod tests {
         input::{keyboard::KeyboardInput, mouse::MouseWheel},
         prelude::*,
         state::app::StatesPlugin,
+        ui::InteractionDisabled,
     };
     use word_grid_game_core::{CubeSet, Dictionary, GameRules};
     use word_grid_solver::FoundWord;
@@ -968,6 +969,10 @@ mod tests {
             Screen::GameSetup
         );
         assert!(!app.world().contains_resource::<ActiveMatch>());
+        let custom = press_menu_button(&mut app, "Custom game");
+        assert!(app.world().get::<InteractionDisabled>(custom).is_some());
+        app.update();
+        assert!(!app.world().contains_resource::<ActiveMatch>());
         let back = press_menu_button(&mut app, "BACK TO MAIN MENU");
         let node = app.world().get::<Node>(back).unwrap();
         assert_eq!(node.position_type, PositionType::Absolute);
@@ -980,12 +985,12 @@ mod tests {
         // Switching back to Normal also checks that Big does not change the catalog preset.
         for (label, rules) in [
             (
-                "START NORMAL - 3 MINUTES",
+                "Standard game",
                 GameRules::normal(CubeSet::standard_new()).unwrap(),
             ),
-            ("START BIG - 3 MINUTES", GameRules::big()),
+            ("Big game", GameRules::big()),
             (
-                "START NORMAL - 3 MINUTES",
+                "Standard game",
                 GameRules::normal(CubeSet::standard_new()).unwrap(),
             ),
         ] {
@@ -997,6 +1002,27 @@ mod tests {
                 Screen::GameSetup
             );
             press_menu_button(&mut app, label);
+            app.update();
+            app.update();
+            assert!(!app.world().contains_resource::<ActiveMatch>());
+            let displayed = app
+                .world_mut()
+                .query::<&Text>()
+                .iter(app.world())
+                .map(|text| text.0.clone())
+                .collect::<Vec<_>>();
+            assert!(displayed.contains(&"Game Setup".to_string()));
+            assert!(displayed.contains(&format!("{} x {}", rules.grid_size(), rules.grid_size())));
+            assert!(displayed.contains(&format!("{} letters", rules.minimum_word_length())));
+            assert!(displayed.contains(&rules.cube_set().name().to_string()));
+            for cube in rules.cube_set().cubes() {
+                assert!(displayed.contains(&cube.faces().join(" / ")));
+            }
+            let start = press_menu_button(&mut app, "Start game");
+            assert_eq!(
+                app.world().get::<Node>(start).unwrap().margin.top,
+                Val::Auto
+            );
             app.update();
             app.update();
 
@@ -1142,7 +1168,7 @@ mod tests {
             "03:00"
         );
         assert_eq!(format_duration(Some(Duration::from_secs(9))), "00:09");
-        assert_eq!(format_duration(None), "∞");
+        assert_eq!(format_duration(None), "NO LIMIT");
     }
 
     #[test]

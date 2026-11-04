@@ -5,7 +5,8 @@ use bevy::{app::AppExit, prelude::*};
 use word_grid_game_core::MatchPhase;
 
 use crate::content::ContentCatalog;
-use crate::match_plugin::{ActiveMatch, GameSet, PlayerIntent};
+use crate::game_setup::GameSetupPlugin;
+use crate::match_plugin::{ActiveMatch, GameSet};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, States)]
 #[states(scoped_entities)]
@@ -28,13 +29,10 @@ pub enum RoundScreen {
 }
 
 #[derive(Component)]
-struct StartGameButton(PlayerIntent);
-
-#[derive(Component)]
 struct QuitButton;
 
 #[derive(Component)]
-struct MenuNavigationButton(Screen);
+pub(crate) struct MenuNavigationButton(pub Screen);
 
 #[derive(Component)]
 struct LoadingStatus;
@@ -47,7 +45,7 @@ impl Plugin for FlowPlugin {
             .add_sub_state::<RoundScreen>()
             .add_systems(OnEnter(Screen::Loading), setup_loading_screen)
             .add_systems(OnEnter(Screen::Menu), setup_menu_screen)
-            .add_systems(OnEnter(Screen::GameSetup), setup_game_setup_screen)
+            .add_plugins(GameSetupPlugin)
             .add_systems(
                 Update,
                 (
@@ -55,9 +53,6 @@ impl Plugin for FlowPlugin {
                     quit_button
                         .in_set(GameSet::Input)
                         .run_if(in_state(Screen::Menu)),
-                    start_game_button
-                        .in_set(GameSet::Input)
-                        .run_if(in_state(Screen::GameSetup)),
                     navigate_menu
                         .in_set(GameSet::Input)
                         .run_if(in_state(Screen::Menu).or_else(in_state(Screen::GameSetup))),
@@ -190,65 +185,6 @@ fn setup_menu_screen(mut commands: Commands) {
         });
 }
 
-fn setup_game_setup_screen(mut commands: Commands) {
-    commands.spawn((Camera2d, DespawnOnExit(Screen::GameSetup)));
-    commands
-        .spawn(menu_root(Screen::GameSetup))
-        .with_children(|parent| {
-            parent.spawn((
-                Text::new("PLAY GAME"),
-                TextFont {
-                    font_size: FontSize::Px(58.0),
-                    ..default()
-                },
-                TextColor(Color::srgb(1.0, 0.86, 0.55)),
-            ));
-            parent
-                .spawn((
-                    Button,
-                    MenuNavigationButton(Screen::Menu),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(16.0),
-                        top: Val::Px(16.0),
-                        padding: UiRect::axes(Val::Px(20.0), Val::Px(14.0)),
-                        border_radius: BorderRadius::all(Val::Px(12.0)),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.28, 0.18, 0.11)),
-                ))
-                .with_children(|button| {
-                    button.spawn(button_label("BACK TO MAIN MENU"));
-                });
-            for (intent, label, description) in [
-                (
-                    PlayerIntent::StartNormal,
-                    "START NORMAL - 3 MINUTES",
-                    "4 x 4 - Standard New cubes - 3 letter minimum",
-                ),
-                (
-                    PlayerIntent::StartBig,
-                    "START BIG - 3 MINUTES",
-                    "5 x 5 - Big cubes - 4 letter minimum",
-                ),
-            ] {
-                parent
-                    .spawn((menu_button(76.0), StartGameButton(intent)))
-                    .with_children(|button| {
-                        button.spawn(button_label(label));
-                    });
-                parent.spawn((
-                    Text::new(description),
-                    TextFont {
-                        font_size: FontSize::Px(16.0),
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.75, 0.67, 0.58)),
-                ));
-            }
-        });
-}
-
 fn navigate_menu(
     buttons: Query<(&Interaction, &MenuNavigationButton), Changed<Interaction>>,
     mut next_screen: ResMut<NextState<Screen>>,
@@ -269,17 +205,6 @@ fn quit_button(
         .any(|interaction| *interaction == Interaction::Pressed)
     {
         exit.write(AppExit::Success);
-    }
-}
-
-fn start_game_button(
-    buttons: Query<(&Interaction, &StartGameButton), Changed<Interaction>>,
-    mut intents: MessageWriter<PlayerIntent>,
-) {
-    for (interaction, button) in &buttons {
-        if *interaction == Interaction::Pressed {
-            intents.write(button.0.clone());
-        }
     }
 }
 
