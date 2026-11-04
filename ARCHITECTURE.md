@@ -184,7 +184,9 @@ produces an immutable round result; review can either start another authoritativ
 roll or finish the match and show cumulative totals.
 
 `BoardSolverPlugin` owns SolveBoard and does not create an `ActiveMatch`. It
-accepts explicit multi-letter tiles in a 4x4 or 5x5 `WordGrid`, then runs
+accepts tiles in a 4x4 or 5x5 `WordGrid`. Typing into an empty tile advances
+focus unless Shift is held; explicit multi-letter entries use Shift and finish
+with Tab or Enter. The screen then runs
 `GridSolver` on the async compute task pool with the matching preset minimum
 word length. The screen polls its owned task without blocking UI updates and
 drops the task on exit, keeping old results out of later solver sessions.

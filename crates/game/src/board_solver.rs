@@ -210,7 +210,7 @@ fn setup_screen(mut commands: Commands) {
                                     .with_children(|button| { button.spawn(text(format!("{size} x {size}"), 22.0, Color::WHITE)); });
                             }
                         });
-                        left.spawn(text("Enter letters, including multi-letter tiles such as QU.\nTab/Enter: next tile. Shift+Tab: previous. Click a tile to edit.", 16.0, Color::WHITE));
+                        left.spawn(text("Typing in an empty tile advances automatically. Hold Shift for multi-letter tiles.\nTab/Enter: next tile. Shift+Tab: previous. Click a tile to edit.", 16.0, Color::WHITE));
                         left.spawn(Node { width: Val::Percent(100.0), flex_grow: 1.0, flex_basis: Val::Px(0.0),
                             min_height: Val::Px(0.0), justify_content: JustifyContent::Center, ..default() }).with_children(|area| {
                                 area.spawn((Node { height: Val::Percent(100.0), max_width: Val::Percent(100.0),
@@ -285,13 +285,32 @@ fn keyboard_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut board: ResMut<SolverBoard>,
 ) {
-    for event in events.read().filter(|event| event.state.is_pressed()) {
-        if board.stage != Stage::Editing {
+    let events = events.read().collect::<Vec<_>>();
+    // ButtonInput contains the final modifier state for the frame. Recover the
+    // starting state so a press/release in the same frame applies in event order.
+    let mut shift = [KeyCode::ShiftLeft, KeyCode::ShiftRight].map(|code| {
+        events
+            .iter()
+            .find(|event| event.key_code == code)
+            .map_or_else(|| keys.pressed(code), |event| !event.state.is_pressed())
+    });
+    for event in events {
+        match event.key_code {
+            KeyCode::ShiftLeft => {
+                shift[0] = event.state.is_pressed();
+                continue;
+            }
+            KeyCode::ShiftRight => {
+                shift[1] = event.state.is_pressed();
+                continue;
+            }
+            _ => {}
+        }
+        if !event.state.is_pressed() || board.stage != Stage::Editing {
             continue;
         }
         if matches!(event.key_code, KeyCode::Tab | KeyCode::Enter) {
-            let reverse = event.key_code == KeyCode::Tab
-                && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight));
+            let reverse = event.key_code == KeyCode::Tab && (shift[0] || shift[1]);
             board.move_focus(reverse);
             continue;
         }
@@ -340,18 +359,20 @@ fn keyboard_input(
             }
             _ => {
                 if let Some(input) = &event.text {
-                    let letters = input
-                        .chars()
-                        .filter(char::is_ascii_alphabetic)
-                        .map(|letter| letter.to_ascii_lowercase())
-                        .collect::<String>();
-                    if !letters.is_empty() {
+                    for letter in input.chars().filter(char::is_ascii_alphabetic) {
+                        let Some(index) = board.focus else {
+                            break;
+                        };
+                        let was_empty = board.cells[index].is_empty();
                         if board.select_all {
                             board.cells[index].clear();
                             board.select_all = false;
                         }
-                        board.cells[index].push_str(&letters);
+                        board.cells[index].push(letter.to_ascii_lowercase());
                         board.error.clear();
+                        if was_empty && !(shift[0] || shift[1]) {
+                            board.move_focus(false);
+                        }
                     }
                 }
             }
@@ -704,23 +725,37 @@ mod tests {
     }
 
     fn key(app: &mut App, key_code: KeyCode, value: Option<&str>) {
+        queue_key(app, key_code, value, ButtonState::Pressed);
+        app.update();
+    }
+
+    fn queue_key(app: &mut App, key_code: KeyCode, value: Option<&str>, state: ButtonState) {
         app.world_mut()
             .write_message(KeyboardInput {
                 key_code,
                 logical_key: Key::Character(value.unwrap_or("").into()),
-                state: ButtonState::Pressed,
+                state,
                 text: value.map(Into::into),
                 repeat: false,
                 window: Entity::PLACEHOLDER,
             })
             .unwrap();
-        app.update();
     }
 
     fn fill(app: &mut App, cells: &[&str]) {
         for cell in cells {
+            if cell.len() > 1 {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<KeyCode>>()
+                    .press(KeyCode::ShiftLeft);
+            }
             key(app, KeyCode::KeyA, Some(cell));
-            key(app, KeyCode::Tab, None);
+            if cell.len() > 1 {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<KeyCode>>()
+                    .release(KeyCode::ShiftLeft);
+                key(app, KeyCode::Tab, None);
+            }
         }
     }
 
@@ -735,6 +770,51 @@ mod tests {
     }
 
     #[test]
+    fn auto_advance_respects_empty_tiles_and_shift_event_order() {
+        let mut app = solver_app();
+        key(&mut app, KeyCode::KeyA, Some("ab"));
+        let board = app.world().resource::<SolverBoard>();
+        assert_eq!(&board.cells[..2], &["a", "b"]);
+        assert_eq!(board.focus, Some(2));
+
+        // The final modifier state is released, but both letters were typed
+        // between the press and release within this frame.
+        queue_key(&mut app, KeyCode::ShiftLeft, None, ButtonState::Pressed);
+        queue_key(&mut app, KeyCode::KeyQ, Some("Q"), ButtonState::Pressed);
+        queue_key(&mut app, KeyCode::KeyU, Some("U"), ButtonState::Pressed);
+        queue_key(&mut app, KeyCode::ShiftLeft, None, ButtonState::Released);
+        app.update();
+        assert_eq!(app.world().resource::<SolverBoard>().cells[2], "qu");
+        assert_eq!(app.world().resource::<SolverBoard>().focus, Some(2));
+        key(&mut app, KeyCode::Enter, None);
+        key(&mut app, KeyCode::KeyC, Some("c"));
+        assert_eq!(app.world().resource::<SolverBoard>().focus, Some(4));
+
+        // Shift was already held before this frame, then released after R.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ShiftRight);
+        app.update();
+        queue_key(&mut app, KeyCode::KeyR, Some("R"), ButtonState::Pressed);
+        queue_key(&mut app, KeyCode::ShiftRight, None, ButtonState::Released);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::ShiftRight);
+        app.update();
+        assert_eq!(app.world().resource::<SolverBoard>().cells[4], "r");
+        assert_eq!(app.world().resource::<SolverBoard>().focus, Some(4));
+
+        // Replacing an occupied tile does not move focus, even without Shift.
+        click_label(&mut app, "A");
+        key(&mut app, KeyCode::KeyZ, Some("z"));
+        assert_eq!(app.world().resource::<SolverBoard>().cells[0], "z");
+        assert_eq!(app.world().resource::<SolverBoard>().focus, Some(0));
+        key(&mut app, KeyCode::KeyY, Some("y"));
+        assert_eq!(app.world().resource::<SolverBoard>().cells[0], "zy");
+        assert_eq!(app.world().resource::<SolverBoard>().focus, Some(0));
+    }
+
+    #[test]
     fn explicit_multi_letter_entry_navigation_and_resize_keep_grid_valid() {
         let mut app = solver_app();
         let solve = button(&mut app, "Solve grid");
@@ -743,8 +823,14 @@ mod tests {
         assert!(app.world().resource::<SolverBoard>().pending.is_none());
         key(&mut app, KeyCode::Digit1, Some("123-!"));
         assert!(app.world().resource::<SolverBoard>().cells[0].is_empty());
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ShiftRight);
         key(&mut app, KeyCode::KeyQ, Some("Q"));
         key(&mut app, KeyCode::KeyU, Some("u"));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::ShiftRight);
         let board = app.world().resource::<SolverBoard>();
         assert_eq!(board.focus, Some(0));
         assert_eq!(board.cells[0], "qu");
@@ -753,7 +839,8 @@ mod tests {
         key(&mut app, KeyCode::KeyI, Some("i"));
         key(&mut app, KeyCode::ArrowLeft, None);
         key(&mut app, KeyCode::KeyQ, Some("q"));
-        assert_eq!(app.world().resource::<SolverBoard>().cells[0], "q");
+        assert_eq!(app.world().resource::<SolverBoard>().cells[1], "q");
+        assert_eq!(app.world().resource::<SolverBoard>().focus, Some(1));
         click_label(&mut app, "5 x 5");
         let board = app.world().resource::<SolverBoard>();
         assert_eq!(board.cells.len(), 25);
@@ -774,8 +861,7 @@ mod tests {
                 .count(),
             16
         );
-        key(&mut app, KeyCode::KeyQ, Some("qu"));
-        key(&mut app, KeyCode::Tab, None);
+        key(&mut app, KeyCode::KeyQ, Some("q"));
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::ShiftLeft);

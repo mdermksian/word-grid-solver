@@ -59,9 +59,12 @@ see the cumulative score, and return to the menu without restarting the
 application.
 
 Solve board opens a separate screen with a 4x4 or 5x5 input grid on the left and
-the game's scrollable solution list on the right. Enter a tile's letters (such as
-Q or QU), then use Tab or Enter to move to the next tile; Shift+Tab moves back.
-Arrow keys and clicking let you revisit tiles. Q and QU remain distinct entries.
+the game's scrollable solution list on the right. Typing a letter into an empty
+tile automatically advances to the next tile. Hold either Shift key while typing
+to keep focus on the current tile for multi-letter entries such as QU, then use
+Tab or Enter to move on. Shift+Tab moves back; arrow keys and clicking let you
+revisit tiles. Editing an already-filled tile keeps focus there. Q and QU remain
+distinct entries.
 Solve grid becomes available once all tiles are filled. Solving runs in the
 background using the same dictionary, minimum word lengths (3 for 4x4 and 4 for
 5x5), and standard scoring as the presets. Results sort longest first, then
