@@ -139,7 +139,7 @@ Acceptance gate: the desktop smoke test above is confirmed.
 
 Dependencies: complete solo round flow.
 
-- [ ] Add Standard Old and Big preset selection and presentation.
+- [x] Add Standard Old and Big preset selection and presentation.
 - [ ] Add custom square size, cube set, minimum length, duration, scoring table,
   and dictionary selection.
 - [ ] Add Endless as a play mode over the existing configuration and submission

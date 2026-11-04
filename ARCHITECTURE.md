@@ -164,8 +164,8 @@ Loading -> Menu -> Match/Rolling -> Match/Playing -> Match/Review
              +---------------------------------------------+
 ```
 
-Loading waits for the dictionary and cube scene, then the Normal menu action
-constructs a match. The rolling presentation reports completion before the core
+Loading waits for the dictionary and cube scene, then the Normal or Big menu action
+constructs a match with the selected preset rules. The rolling presentation reports completion before the core
 starts its authoritative timer. Timer expiry produces an immutable round result;
 review can either start another authoritative roll or finish the match and show
 cumulative totals.

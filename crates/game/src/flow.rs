@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Michael Dermksian
 
-use bevy::prelude::*;
+use bevy::{app::AppExit, prelude::*};
 use word_grid_game_core::MatchPhase;
 
 use crate::content::ContentCatalog;
@@ -27,7 +27,10 @@ pub enum RoundScreen {
 }
 
 #[derive(Component)]
-struct NormalGameButton;
+struct StartGameButton(PlayerIntent);
+
+#[derive(Component)]
+struct QuitButton;
 
 #[derive(Component)]
 struct LoadingStatus;
@@ -44,7 +47,7 @@ impl Plugin for FlowPlugin {
                 Update,
                 (
                     wait_for_content.run_if(in_state(Screen::Loading)),
-                    start_normal_button
+                    (start_game_button, quit_button)
                         .in_set(GameSet::Input)
                         .run_if(in_state(Screen::Menu)),
                     project_match_phase.in_set(GameSet::Presentation),
@@ -129,23 +132,68 @@ fn setup_menu_screen(mut commands: Commands) {
                 },
                 TextColor(Color::srgb(1.0, 0.86, 0.55)),
             ));
+            for (intent, label, description) in [
+                (
+                    PlayerIntent::StartNormal,
+                    "START NORMAL - 3 MINUTES",
+                    "4 x 4 - Standard New cubes - 3 letter minimum",
+                ),
+                (
+                    PlayerIntent::StartBig,
+                    "START BIG - 3 MINUTES",
+                    "5 x 5 - Big cubes - 4 letter minimum",
+                ),
+            ] {
+                parent
+                    .spawn((
+                        Button,
+                        StartGameButton(intent),
+                        Node {
+                            width: Val::Px(330.0),
+                            height: Val::Px(76.0),
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::Center,
+                            border_radius: BorderRadius::all(Val::Px(12.0)),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.73, 0.28, 0.08)),
+                    ))
+                    .with_children(|button| {
+                        button.spawn((
+                            Text::new(label),
+                            TextFont {
+                                font_size: FontSize::Px(22.0),
+                                ..default()
+                            },
+                            TextColor::WHITE,
+                        ));
+                    });
+                parent.spawn((
+                    Text::new(description),
+                    TextFont {
+                        font_size: FontSize::Px(16.0),
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.75, 0.67, 0.58)),
+                ));
+            }
             parent
                 .spawn((
                     Button,
-                    NormalGameButton,
+                    QuitButton,
                     Node {
                         width: Val::Px(330.0),
-                        height: Val::Px(76.0),
+                        height: Val::Px(56.0),
                         align_items: AlignItems::Center,
                         justify_content: JustifyContent::Center,
                         border_radius: BorderRadius::all(Val::Px(12.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.73, 0.28, 0.08)),
+                    BackgroundColor(Color::srgb(0.28, 0.18, 0.11)),
                 ))
                 .with_children(|button| {
                     button.spawn((
-                        Text::new("START NORMAL - 3 MINUTES"),
+                        Text::new("QUIT"),
                         TextFont {
                             font_size: FontSize::Px(22.0),
                             ..default()
@@ -153,26 +201,29 @@ fn setup_menu_screen(mut commands: Commands) {
                         TextColor::WHITE,
                     ));
                 });
-            parent.spawn((
-                Text::new("4 x 4 - Standard New cubes - 3 letter minimum"),
-                TextFont {
-                    font_size: FontSize::Px(16.0),
-                    ..default()
-                },
-                TextColor(Color::srgb(0.75, 0.67, 0.58)),
-            ));
         });
 }
 
-fn start_normal_button(
-    buttons: Query<&Interaction, (Changed<Interaction>, With<NormalGameButton>)>,
-    mut intents: MessageWriter<PlayerIntent>,
+fn quit_button(
+    buttons: Query<&Interaction, (Changed<Interaction>, With<QuitButton>)>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     if buttons
         .iter()
         .any(|interaction| *interaction == Interaction::Pressed)
     {
-        intents.write(PlayerIntent::StartNormal);
+        exit.write(AppExit::Success);
+    }
+}
+
+fn start_game_button(
+    buttons: Query<(&Interaction, &StartGameButton), Changed<Interaction>>,
+    mut intents: MessageWriter<PlayerIntent>,
+) {
+    for (interaction, button) in &buttons {
+        if *interaction == Interaction::Pressed {
+            intents.write(button.0.clone());
+        }
     }
 }
 

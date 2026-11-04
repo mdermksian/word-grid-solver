@@ -31,7 +31,9 @@ provided.
 cargo run -p word-grid-game
 ```
 
-The desktop client loads its content before presenting the Normal game preset.
+The desktop client loads its content before offering Normal (4×4, three-letter
+minimum) and Big (5×5, four-letter minimum) game presets. Big uses the built-in
+25-die Big cube set; Normal uses the Standard New cubes.
 Each round animates the authoritative board roll, starts a three-minute timer
 after the dice settle, accepts clicked paths or typed words, and ends in a review
 screen when time expires or the player ends the round early. Review keeps the

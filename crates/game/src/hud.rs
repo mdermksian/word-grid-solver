@@ -882,22 +882,22 @@ mod tests {
         prelude::*,
         state::app::StatesPlugin,
     };
-    use word_grid_game_core::{CubeSet, GameRules};
+    use word_grid_game_core::{CubeSet, Dictionary, GameRules};
     use word_grid_solver::FoundWord;
 
     use super::{
-        HudPlugin, InputDraft, ReturnToMenuButton, delete_last_input, format_duration,
-        sort_solved_words,
+        HudPlugin, InputDraft, ReturnToMenuButton, ReviewSolution, delete_last_input,
+        format_duration, sort_solved_words,
     };
     use crate::{
         board::BoardPlugin,
         content::{ContentCatalog, DictionaryAsset},
         flow::{FlowPlugin, RoundScreen, Screen},
-        match_plugin::{ActiveMatch, GameSet, MatchPlugin, PlayerIntent},
+        match_plugin::{ActiveMatch, GameSet, LOCAL_PLAYER, MatchPlugin, PlayerIntent},
     };
 
     #[test]
-    fn return_to_menu_after_review_removes_match_before_screen_transition() {
+    fn both_menu_presets_support_rounds_review_and_return_to_menu() {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -925,40 +925,169 @@ mod tests {
         )
         .add_plugins((FlowPlugin, MatchPlugin, BoardPlugin, HudPlugin));
 
-        for intent in [
-            PlayerIntent::StartNormal,
-            PlayerIntent::RollComplete,
-            PlayerIntent::EndRound,
-            PlayerIntent::FinishMatch,
+        app.update();
+        // Switching back to Normal also checks that Big does not change the catalog preset.
+        for (label, rules) in [
+            (
+                "START NORMAL - 3 MINUTES",
+                GameRules::normal(CubeSet::standard_new()).unwrap(),
+            ),
+            ("START BIG - 3 MINUTES", GameRules::big()),
+            (
+                "START NORMAL - 3 MINUTES",
+                GameRules::normal(CubeSet::standard_new()).unwrap(),
+            ),
         ] {
-            app.world_mut().write_message(intent).unwrap();
+            let button = app
+                .world_mut()
+                .query_filtered::<(Entity, &Children), With<Button>>()
+                .iter(app.world())
+                .find(|(_, children)| {
+                    children.iter().any(|child| {
+                        app.world()
+                            .get::<Text>(child)
+                            .is_some_and(|text| text.0 == label)
+                    })
+                })
+                .map(|(entity, _)| entity)
+                .expect("the menu offers the requested preset");
+            app.world_mut()
+                .entity_mut(button)
+                .insert(Interaction::Pressed);
             app.update();
+            app.update();
+
+            for round_index in 0..2 {
+                let game = &app.world().resource::<ActiveMatch>().0;
+                assert_eq!(game.rules(), &rules);
+                assert_eq!(
+                    game.current_round().unwrap().remaining(),
+                    Some(Duration::from_secs(180))
+                );
+                assert_eq!(
+                    game.current_round().unwrap().board().cubes().len(),
+                    rules.grid_size().pow(2)
+                );
+                assert_eq!(
+                    app.world_mut()
+                        .query::<&WorldAssetRoot>()
+                        .iter(app.world())
+                        .count(),
+                    rules.grid_size().pow(2)
+                );
+
+                app.world_mut()
+                    .write_message(PlayerIntent::RollComplete)
+                    .unwrap();
+                app.update();
+                app.update();
+                let paths = [vec![0, 1, 2], vec![0, 1, 2, 3]];
+                let game = &app.world().resource::<ActiveMatch>().0;
+                let grid = game.current_round().unwrap().board().grid();
+                let words = paths
+                    .iter()
+                    .map(|path| grid.word_for_path(path).unwrap())
+                    .collect::<Vec<_>>();
+                let expected_count = words
+                    .iter()
+                    .filter(|word| word.len() >= rules.minimum_word_length())
+                    .count();
+                let dictionary = app
+                    .world_mut()
+                    .resource_mut::<Assets<DictionaryAsset>>()
+                    .add(DictionaryAsset(Dictionary::from_words(words)));
+                app.world_mut().resource_mut::<ContentCatalog>().dictionary = dictionary;
+                for path in paths {
+                    app.world_mut()
+                        .write_message(PlayerIntent::SubmitPath(path))
+                        .unwrap();
+                }
+                app.update();
+                assert_eq!(
+                    app.world()
+                        .resource::<ActiveMatch>()
+                        .0
+                        .current_round()
+                        .unwrap()
+                        .submissions(LOCAL_PLAYER)
+                        .len(),
+                    expected_count
+                );
+
+                app.world_mut()
+                    .write_message(PlayerIntent::EndRound)
+                    .unwrap();
+                app.update();
+                app.update();
+                assert_eq!(
+                    *app.world().resource::<State<RoundScreen>>().get(),
+                    RoundScreen::Review
+                );
+                let solution = app.world().resource::<ReviewSolution>();
+                assert_eq!(solution.words.len(), expected_count);
+                assert!(
+                    solution
+                        .words
+                        .iter()
+                        .all(|word| word.word.len() >= rules.minimum_word_length())
+                );
+                if round_index == 0 {
+                    app.world_mut()
+                        .write_message(PlayerIntent::StartNextRound)
+                        .unwrap();
+                    app.update();
+                    app.update();
+                }
+            }
+            app.world_mut()
+                .write_message(PlayerIntent::FinishMatch)
+                .unwrap();
+            app.update();
+
+            let button = app
+                .world_mut()
+                .query_filtered::<Entity, With<ReturnToMenuButton>>()
+                .single(app.world())
+                .unwrap();
+            assert_eq!(
+                app.world().get::<Node>(button).unwrap().display,
+                Display::Flex
+            );
+            app.world_mut()
+                .entity_mut(button)
+                .insert(Interaction::Pressed);
+            app.update();
+
+            assert!(!app.world().contains_resource::<ActiveMatch>());
+            assert_eq!(
+                *app.world().resource::<State<Screen>>().get(),
+                Screen::Match
+            );
+            app.update();
+            assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
+            assert!(!app.world().contains_resource::<State<RoundScreen>>());
             app.update();
         }
-        assert_eq!(
-            *app.world().resource::<State<RoundScreen>>().get(),
-            RoundScreen::Review
-        );
 
-        let button = app
+        assert!(app.should_exit().is_none());
+        let quit = app
             .world_mut()
-            .query_filtered::<Entity, With<ReturnToMenuButton>>()
-            .single(app.world())
-            .unwrap();
+            .query_filtered::<(Entity, &Children), With<Button>>()
+            .iter(app.world())
+            .find(|(_, children)| {
+                children.iter().any(|child| {
+                    app.world()
+                        .get::<Text>(child)
+                        .is_some_and(|text| text.0 == "QUIT")
+                })
+            })
+            .map(|(entity, _)| entity)
+            .expect("the menu offers Quit");
         app.world_mut()
-            .entity_mut(button)
+            .entity_mut(quit)
             .insert(Interaction::Pressed);
         app.update();
-
-        assert!(!app.world().contains_resource::<ActiveMatch>());
-        assert_eq!(
-            *app.world().resource::<State<Screen>>().get(),
-            Screen::Match
-        );
-        app.update();
-        assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
-        assert!(!app.world().contains_resource::<State<RoundScreen>>());
-        app.update();
+        assert_eq!(app.should_exit(), Some(bevy::app::AppExit::Success));
     }
 
     #[test]
