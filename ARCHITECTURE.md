@@ -151,24 +151,26 @@ consumers. Presentation-only messages, such as requesting that the board display
 a solved-word path, may connect client plugins without passing through
 `MatchPlugin`. Direct domain mutation from board or HUD systems is not permitted.
 
-Top-level screens are Loading, Menu, and Match. While a match screen is active,
+Top-level screens are Loading, Menu, GameSetup, and Match. While a match screen is active,
 its projected round screen is Rolling, Playing, or Review. `MatchPhase` remains
 the authority for every transition; the Bevy states only select systems and
 scope presentation entities.
 
 ```text
-Loading -> Menu -> Match/Rolling -> Match/Playing -> Match/Review
-             ^                              ^              |
-             |                              | next round   |
-             | return after final result    +--------------+
-             +---------------------------------------------+
+Loading -> Menu -> GameSetup -> Match/Rolling -> Match/Playing -> Match/Review
+           ^         |              ^                               |
+           |  Back   |              +---------- next round ---------+
+           +---------+                                              |
+           +---------------- return after final result -------------+
 ```
 
-Loading waits for the dictionary and cube scene, then the Normal or Big menu action
-constructs a match with the selected preset rules. The rolling presentation reports completion before the core
-starts its authoritative timer. Timer expiry produces an immutable round result;
-review can either start another authoritative roll or finish the match and show
-cumulative totals.
+Loading waits for the dictionary and cube scene, then the main menu offers
+Play game, Solve board (a placeholder), and Quit. Play game opens GameSetup,
+where Normal or Big constructs a match with the selected preset rules. A
+top-left Back button returns from GameSetup to Menu. The rolling presentation
+reports completion before the core starts its authoritative timer. Timer expiry
+produces an immutable round result; review can either start another authoritative
+roll or finish the match and show cumulative totals.
 
 ## Content and Platform Boundaries
 

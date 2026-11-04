@@ -896,6 +896,26 @@ mod tests {
         match_plugin::{ActiveMatch, GameSet, LOCAL_PLAYER, MatchPlugin, PlayerIntent},
     };
 
+    fn press_menu_button(app: &mut App, label: &str) -> Entity {
+        let entity = app
+            .world_mut()
+            .query_filtered::<(Entity, &Children), With<Button>>()
+            .iter(app.world())
+            .find(|(_, children)| {
+                children.iter().any(|child| {
+                    app.world()
+                        .get::<Text>(child)
+                        .is_some_and(|text| text.0 == label)
+                })
+            })
+            .map(|(entity, _)| entity)
+            .unwrap_or_else(|| panic!("the menu should offer {label}"));
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(Interaction::Pressed);
+        entity
+    }
+
     #[test]
     fn both_menu_presets_support_rounds_review_and_return_to_menu() {
         let mut app = App::new();
@@ -926,6 +946,37 @@ mod tests {
         .add_plugins((FlowPlugin, MatchPlugin, BoardPlugin, HudPlugin));
 
         app.update();
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<Button>>()
+                .iter(app.world())
+                .count(),
+            3
+        );
+        press_menu_button(&mut app, "SOLVE BOARD");
+        app.update();
+        app.update();
+        assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
+        assert!(!app.world().contains_resource::<ActiveMatch>());
+        assert!(app.should_exit().is_none());
+
+        press_menu_button(&mut app, "PLAY GAME");
+        app.update();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<State<Screen>>().get(),
+            Screen::GameSetup
+        );
+        assert!(!app.world().contains_resource::<ActiveMatch>());
+        let back = press_menu_button(&mut app, "BACK TO MAIN MENU");
+        let node = app.world().get::<Node>(back).unwrap();
+        assert_eq!(node.position_type, PositionType::Absolute);
+        assert_eq!(node.left, Val::Px(16.0));
+        assert_eq!(node.top, Val::Px(16.0));
+        app.update();
+        app.update();
+        assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
+
         // Switching back to Normal also checks that Big does not change the catalog preset.
         for (label, rules) in [
             (
@@ -938,22 +989,14 @@ mod tests {
                 GameRules::normal(CubeSet::standard_new()).unwrap(),
             ),
         ] {
-            let button = app
-                .world_mut()
-                .query_filtered::<(Entity, &Children), With<Button>>()
-                .iter(app.world())
-                .find(|(_, children)| {
-                    children.iter().any(|child| {
-                        app.world()
-                            .get::<Text>(child)
-                            .is_some_and(|text| text.0 == label)
-                    })
-                })
-                .map(|(entity, _)| entity)
-                .expect("the menu offers the requested preset");
-            app.world_mut()
-                .entity_mut(button)
-                .insert(Interaction::Pressed);
+            press_menu_button(&mut app, "PLAY GAME");
+            app.update();
+            app.update();
+            assert_eq!(
+                *app.world().resource::<State<Screen>>().get(),
+                Screen::GameSetup
+            );
+            press_menu_button(&mut app, label);
             app.update();
             app.update();
 
@@ -1070,22 +1113,7 @@ mod tests {
         }
 
         assert!(app.should_exit().is_none());
-        let quit = app
-            .world_mut()
-            .query_filtered::<(Entity, &Children), With<Button>>()
-            .iter(app.world())
-            .find(|(_, children)| {
-                children.iter().any(|child| {
-                    app.world()
-                        .get::<Text>(child)
-                        .is_some_and(|text| text.0 == "QUIT")
-                })
-            })
-            .map(|(entity, _)| entity)
-            .expect("the menu offers Quit");
-        app.world_mut()
-            .entity_mut(quit)
-            .insert(Interaction::Pressed);
+        press_menu_button(&mut app, "QUIT");
         app.update();
         assert_eq!(app.should_exit(), Some(bevy::app::AppExit::Success));
     }
