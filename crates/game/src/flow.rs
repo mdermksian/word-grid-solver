@@ -4,6 +4,7 @@
 use bevy::{app::AppExit, prelude::*};
 use word_grid_game_core::MatchPhase;
 
+use crate::board_solver::BoardSolverPlugin;
 use crate::content::ContentCatalog;
 use crate::game_setup::GameSetupPlugin;
 use crate::match_plugin::{ActiveMatch, GameSet};
@@ -15,6 +16,7 @@ pub enum Screen {
     Loading,
     Menu,
     GameSetup,
+    SolveBoard,
     Match,
 }
 
@@ -45,7 +47,7 @@ impl Plugin for FlowPlugin {
             .add_sub_state::<RoundScreen>()
             .add_systems(OnEnter(Screen::Loading), setup_loading_screen)
             .add_systems(OnEnter(Screen::Menu), setup_menu_screen)
-            .add_plugins(GameSetupPlugin)
+            .add_plugins((GameSetupPlugin, BoardSolverPlugin))
             .add_systems(
                 Update,
                 (
@@ -53,9 +55,11 @@ impl Plugin for FlowPlugin {
                     quit_button
                         .in_set(GameSet::Input)
                         .run_if(in_state(Screen::Menu)),
-                    navigate_menu
-                        .in_set(GameSet::Input)
-                        .run_if(in_state(Screen::Menu).or_else(in_state(Screen::GameSetup))),
+                    navigate_menu.in_set(GameSet::Input).run_if(
+                        in_state(Screen::Menu)
+                            .or_else(in_state(Screen::GameSetup))
+                            .or_else(in_state(Screen::SolveBoard)),
+                    ),
                     project_match_phase.in_set(GameSet::Presentation),
                 ),
             );
@@ -173,9 +177,11 @@ fn setup_menu_screen(mut commands: Commands) {
                 .with_children(|button| {
                     button.spawn(button_label("PLAY GAME"));
                 });
-            parent.spawn(menu_button(76.0)).with_children(|button| {
-                button.spawn(button_label("SOLVE BOARD"));
-            });
+            parent
+                .spawn((menu_button(76.0), MenuNavigationButton(Screen::SolveBoard)))
+                .with_children(|button| {
+                    button.spawn(button_label("SOLVE BOARD"));
+                });
             parent
                 .spawn((menu_button(56.0), QuitButton))
                 .insert(BackgroundColor(Color::srgb(0.28, 0.18, 0.11)))
