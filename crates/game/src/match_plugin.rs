@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use rand::SeedableRng;
-use word_grid_game_core::{Match, MatchPhase, PlayerId, RoundResult, Submission};
+use word_grid_game_core::{GameRules, Match, MatchPhase, PlayerId, RoundResult, Submission};
 
 use crate::content::{ContentCatalog, DictionaryAsset};
 use crate::flow::RoundScreen;
@@ -20,6 +20,8 @@ pub enum GameSet {
 #[derive(Debug, Clone, Message)]
 pub enum PlayerIntent {
     StartNormal,
+    StartBig,
+    StartCustom(GameRules),
     RollComplete,
     SubmitPath(Vec<usize>),
     SubmitText(String),
@@ -78,12 +80,17 @@ fn apply_player_intents(
     let mut match_exists = game.is_some();
     for intent in intents.read() {
         match intent {
-            PlayerIntent::StartNormal => {
+            PlayerIntent::StartNormal | PlayerIntent::StartBig | PlayerIntent::StartCustom(_) => {
                 if match_exists {
                     continue;
                 }
-                let mut new_match = Match::single_player(catalog.rules.clone(), "Player")
-                    .expect("the built-in player is valid");
+                let rules = match intent {
+                    PlayerIntent::StartBig => GameRules::big(),
+                    PlayerIntent::StartCustom(rules) => rules.clone(),
+                    _ => catalog.rules.clone(),
+                };
+                let mut new_match =
+                    Match::single_player(rules, "Player").expect("the built-in player is valid");
                 new_match
                     .start_round(&mut rng.0)
                     .expect("a new match can start its first round");

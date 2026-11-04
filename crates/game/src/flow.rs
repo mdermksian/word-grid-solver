@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Michael Dermksian
 
-use bevy::prelude::*;
+use bevy::{app::AppExit, prelude::*};
 use word_grid_game_core::MatchPhase;
 
 use crate::content::ContentCatalog;
-use crate::match_plugin::{ActiveMatch, GameSet, PlayerIntent};
+use crate::game_setup::GameSetupPlugin;
+use crate::match_plugin::{ActiveMatch, GameSet};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, States)]
 #[states(scoped_entities)]
@@ -13,6 +14,7 @@ pub enum Screen {
     #[default]
     Loading,
     Menu,
+    GameSetup,
     Match,
 }
 
@@ -27,7 +29,10 @@ pub enum RoundScreen {
 }
 
 #[derive(Component)]
-struct NormalGameButton;
+struct QuitButton;
+
+#[derive(Component)]
+pub(crate) struct MenuNavigationButton(pub Screen);
 
 #[derive(Component)]
 struct LoadingStatus;
@@ -40,13 +45,17 @@ impl Plugin for FlowPlugin {
             .add_sub_state::<RoundScreen>()
             .add_systems(OnEnter(Screen::Loading), setup_loading_screen)
             .add_systems(OnEnter(Screen::Menu), setup_menu_screen)
+            .add_plugins(GameSetupPlugin)
             .add_systems(
                 Update,
                 (
                     wait_for_content.run_if(in_state(Screen::Loading)),
-                    start_normal_button
+                    quit_button
                         .in_set(GameSet::Input)
                         .run_if(in_state(Screen::Menu)),
+                    navigate_menu
+                        .in_set(GameSet::Input)
+                        .run_if(in_state(Screen::Menu).or_else(in_state(Screen::GameSetup))),
                     project_match_phase.in_set(GameSet::Presentation),
                 ),
             );
@@ -104,22 +113,52 @@ fn wait_for_content(
     }
 }
 
+fn menu_root(screen: Screen) -> impl Bundle {
+    (
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            row_gap: Val::Px(24.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.12, 0.055, 0.025)),
+        DespawnOnExit(screen),
+    )
+}
+
+fn menu_button(height: f32) -> impl Bundle {
+    (
+        Button,
+        Node {
+            width: Val::Px(330.0),
+            height: Val::Px(height),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            border_radius: BorderRadius::all(Val::Px(12.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.73, 0.28, 0.08)),
+    )
+}
+
+fn button_label(label: &str) -> impl Bundle {
+    (
+        Text::new(label),
+        TextFont {
+            font_size: FontSize::Px(22.0),
+            ..default()
+        },
+        TextColor::WHITE,
+    )
+}
+
 fn setup_menu_screen(mut commands: Commands) {
     commands.spawn((Camera2d, DespawnOnExit(Screen::Menu)));
     commands
-        .spawn((
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                row_gap: Val::Px(24.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.12, 0.055, 0.025)),
-            DespawnOnExit(Screen::Menu),
-        ))
+        .spawn(menu_root(Screen::Menu))
         .with_children(|parent| {
             parent.spawn((
                 Text::new("WORD GRID"),
@@ -130,49 +169,42 @@ fn setup_menu_screen(mut commands: Commands) {
                 TextColor(Color::srgb(1.0, 0.86, 0.55)),
             ));
             parent
-                .spawn((
-                    Button,
-                    NormalGameButton,
-                    Node {
-                        width: Val::Px(330.0),
-                        height: Val::Px(76.0),
-                        align_items: AlignItems::Center,
-                        justify_content: JustifyContent::Center,
-                        border_radius: BorderRadius::all(Val::Px(12.0)),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.73, 0.28, 0.08)),
-                ))
+                .spawn((menu_button(76.0), MenuNavigationButton(Screen::GameSetup)))
                 .with_children(|button| {
-                    button.spawn((
-                        Text::new("START NORMAL - 3 MINUTES"),
-                        TextFont {
-                            font_size: FontSize::Px(22.0),
-                            ..default()
-                        },
-                        TextColor::WHITE,
-                    ));
+                    button.spawn(button_label("PLAY GAME"));
                 });
-            parent.spawn((
-                Text::new("4 x 4 - Standard New cubes - 3 letter minimum"),
-                TextFont {
-                    font_size: FontSize::Px(16.0),
-                    ..default()
-                },
-                TextColor(Color::srgb(0.75, 0.67, 0.58)),
-            ));
+            parent.spawn(menu_button(76.0)).with_children(|button| {
+                button.spawn(button_label("SOLVE BOARD"));
+            });
+            parent
+                .spawn((menu_button(56.0), QuitButton))
+                .insert(BackgroundColor(Color::srgb(0.28, 0.18, 0.11)))
+                .with_children(|button| {
+                    button.spawn(button_label("QUIT"));
+                });
         });
 }
 
-fn start_normal_button(
-    buttons: Query<&Interaction, (Changed<Interaction>, With<NormalGameButton>)>,
-    mut intents: MessageWriter<PlayerIntent>,
+fn navigate_menu(
+    buttons: Query<(&Interaction, &MenuNavigationButton), Changed<Interaction>>,
+    mut next_screen: ResMut<NextState<Screen>>,
+) {
+    for (interaction, destination) in &buttons {
+        if *interaction == Interaction::Pressed {
+            next_screen.set(destination.0);
+        }
+    }
+}
+
+fn quit_button(
+    buttons: Query<&Interaction, (Changed<Interaction>, With<QuitButton>)>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     if buttons
         .iter()
         .any(|interaction| *interaction == Interaction::Pressed)
     {
-        intents.write(PlayerIntent::StartNormal);
+        exit.write(AppExit::Success);
     }
 }
 

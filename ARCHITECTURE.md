@@ -151,24 +151,37 @@ consumers. Presentation-only messages, such as requesting that the board display
 a solved-word path, may connect client plugins without passing through
 `MatchPlugin`. Direct domain mutation from board or HUD systems is not permitted.
 
-Top-level screens are Loading, Menu, and Match. While a match screen is active,
+Top-level screens are Loading, Menu, GameSetup, and Match. While a match screen is active,
 its projected round screen is Rolling, Playing, or Review. `MatchPhase` remains
 the authority for every transition; the Bevy states only select systems and
 scope presentation entities.
 
 ```text
-Loading -> Menu -> Match/Rolling -> Match/Playing -> Match/Review
-             ^                              ^              |
-             |                              | next round   |
-             | return after final result    +--------------+
-             +---------------------------------------------+
+Loading -> Menu -> GameSetup -> Match/Rolling -> Match/Playing -> Match/Review
+           ^         |              ^                               |
+           |  Back   |              +---------- next round ---------+
+           +---------+                                              |
+           +---------------- return after final result -------------+
 ```
 
-Loading waits for the dictionary and cube scene, then the Normal menu action
-constructs a match. The rolling presentation reports completion before the core
-starts its authoritative timer. Timer expiry produces an immutable round result;
-review can either start another authoritative roll or finish the match and show
-cumulative totals.
+Loading waits for the dictionary and cube scene, then the main menu offers
+Play game, Solve board (a placeholder), and Quit. Play game opens GameSetup,
+where a sidebar selects Standard or Big and a scrollable details panel renders
+that preset's `GameRules`, including its cube faces and scoring bands. Custom
+starts from Standard rules and exposes grid size, timing, minimum length, and
+scoring-point controls. Its draft is validated through `GameRules::new`; fixed
+scoring-band thresholds and automatic 4x4/5x5 cube selection keep edits consistent.
+Standard is selected on entry; selection alone does not create a match. The
+lower-left Start game button sends the corresponding start intent, and a top-left
+Back button returns from GameSetup to Menu. `GameSetupPlugin`
+owns selection and preview UI; `CustomSetupPlugin` owns editable numeric fields,
+validation, and the custom draft. Starting Custom sends `StartCustom(GameRules)`
+to `MatchPlugin`, which constructs the match. Endless rounds have no remaining
+time and advance to review only through the player's manual end action. The
+rolling presentation reports completion before the core starts its authoritative
+timer. Timer expiry
+produces an immutable round result; review can either start another authoritative
+roll or finish the match and show cumulative totals.
 
 ## Content and Platform Boundaries
 

@@ -238,7 +238,7 @@ fn setup_review(mut commands: Commands, game: Res<ActiveMatch>, solution: Res<Re
                 ReviewSummary,
             ));
             parent.spawn((
-                Text::new(format!("ALL SOLUTIONS · {}", solution.words.len())),
+                Text::new(format!("ALL SOLUTIONS - {}", solution.words.len())),
                 TextFont {
                     font_size: FontSize::Px(17.0),
                     ..default()
@@ -286,7 +286,7 @@ fn setup_review(mut commands: Commands, game: Res<ActiveMatch>, solution: Res<Re
                         .with_children(|button| {
                             button.spawn((
                                 Text::new(if was_submitted {
-                                    format!("✓ {}", solved.word.to_uppercase())
+                                    format!("[x] {}", solved.word.to_uppercase())
                                 } else {
                                     solved.word.to_uppercase()
                                 }),
@@ -537,7 +537,7 @@ fn setup_hud(mut commands: Commands) {
                     BackgroundColor(Color::srgb(0.28, 0.18, 0.11)),
                 ))
                 .with_children(|button| {
-                    button.spawn((Text::new("END ROUND EARLY"), TextColor::WHITE));
+                    button.spawn((Text::new("END ROUND"), TextColor::WHITE));
                 });
         });
 }
@@ -602,7 +602,7 @@ fn consume_notices(mut notices: MessageReader<MatchNotice>, mut input: ResMut<In
             MatchNotice::RoundStarted => {
                 input.path.clear();
                 input.typed.clear();
-                input.feedback = "Rolling the dice…".into();
+                input.feedback = "Rolling the dice...".into();
             }
             MatchNotice::RoundBegan => {
                 input.feedback = "Go! Click adjacent dice or type a word.".into();
@@ -866,7 +866,7 @@ fn refresh_review(
 
 fn format_duration(duration: Option<Duration>) -> String {
     let Some(duration) = duration else {
-        return "∞".into();
+        return "NO LIMIT".into();
     };
     let seconds = duration.as_secs_f32().ceil() as u64;
     format!("{:02}:{:02}", seconds / 60, seconds % 60)
@@ -882,22 +882,42 @@ mod tests {
         prelude::*,
         state::app::StatesPlugin,
     };
-    use word_grid_game_core::{CubeSet, GameRules};
+    use word_grid_game_core::{CubeSet, Dictionary, GameRules};
     use word_grid_solver::FoundWord;
 
     use super::{
-        HudPlugin, InputDraft, ReturnToMenuButton, delete_last_input, format_duration,
-        sort_solved_words,
+        HudPlugin, InputDraft, ReturnToMenuButton, ReviewSolution, delete_last_input,
+        format_duration, sort_solved_words,
     };
     use crate::{
         board::BoardPlugin,
         content::{ContentCatalog, DictionaryAsset},
         flow::{FlowPlugin, RoundScreen, Screen},
-        match_plugin::{ActiveMatch, GameSet, MatchPlugin, PlayerIntent},
+        match_plugin::{ActiveMatch, GameSet, LOCAL_PLAYER, MatchPlugin, PlayerIntent},
     };
 
+    fn press_menu_button(app: &mut App, label: &str) -> Entity {
+        let entity = app
+            .world_mut()
+            .query_filtered::<(Entity, &Children), With<Button>>()
+            .iter(app.world())
+            .find(|(_, children)| {
+                children.iter().any(|child| {
+                    app.world()
+                        .get::<Text>(child)
+                        .is_some_and(|text| text.0 == label)
+                })
+            })
+            .map(|(entity, _)| entity)
+            .unwrap_or_else(|| panic!("the menu should offer {label}"));
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(Interaction::Pressed);
+        entity
+    }
+
     #[test]
-    fn return_to_menu_after_review_removes_match_before_screen_transition() {
+    fn both_menu_presets_support_rounds_review_and_return_to_menu() {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -925,40 +945,206 @@ mod tests {
         )
         .add_plugins((FlowPlugin, MatchPlugin, BoardPlugin, HudPlugin));
 
-        for intent in [
-            PlayerIntent::StartNormal,
-            PlayerIntent::RollComplete,
-            PlayerIntent::EndRound,
-            PlayerIntent::FinishMatch,
-        ] {
-            app.world_mut().write_message(intent).unwrap();
-            app.update();
-            app.update();
-        }
-        assert_eq!(
-            *app.world().resource::<State<RoundScreen>>().get(),
-            RoundScreen::Review
-        );
-
-        let button = app
-            .world_mut()
-            .query_filtered::<Entity, With<ReturnToMenuButton>>()
-            .single(app.world())
-            .unwrap();
-        app.world_mut()
-            .entity_mut(button)
-            .insert(Interaction::Pressed);
         app.update();
-
-        assert!(!app.world().contains_resource::<ActiveMatch>());
         assert_eq!(
-            *app.world().resource::<State<Screen>>().get(),
-            Screen::Match
+            app.world_mut()
+                .query_filtered::<Entity, With<Button>>()
+                .iter(app.world())
+                .count(),
+            3
         );
+        press_menu_button(&mut app, "SOLVE BOARD");
+        app.update();
         app.update();
         assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
-        assert!(!app.world().contains_resource::<State<RoundScreen>>());
+        assert!(!app.world().contains_resource::<ActiveMatch>());
+        assert!(app.should_exit().is_none());
+
+        press_menu_button(&mut app, "PLAY GAME");
         app.update();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<State<Screen>>().get(),
+            Screen::GameSetup
+        );
+        assert!(!app.world().contains_resource::<ActiveMatch>());
+        let custom = press_menu_button(&mut app, "Custom game");
+        assert!(
+            app.world()
+                .get::<bevy::ui::InteractionDisabled>(custom)
+                .is_none()
+        );
+        app.update();
+        assert!(!app.world().contains_resource::<ActiveMatch>());
+        let back = press_menu_button(&mut app, "BACK TO MAIN MENU");
+        let node = app.world().get::<Node>(back).unwrap();
+        assert_eq!(node.position_type, PositionType::Absolute);
+        assert_eq!(node.left, Val::Px(16.0));
+        assert_eq!(node.top, Val::Px(16.0));
+        app.update();
+        app.update();
+        assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
+
+        // Switching back to Normal also checks that Big does not change the catalog preset.
+        for (label, rules) in [
+            (
+                "Standard game",
+                GameRules::normal(CubeSet::standard_new()).unwrap(),
+            ),
+            ("Big game", GameRules::big()),
+            (
+                "Standard game",
+                GameRules::normal(CubeSet::standard_new()).unwrap(),
+            ),
+        ] {
+            press_menu_button(&mut app, "PLAY GAME");
+            app.update();
+            app.update();
+            assert_eq!(
+                *app.world().resource::<State<Screen>>().get(),
+                Screen::GameSetup
+            );
+            press_menu_button(&mut app, label);
+            app.update();
+            app.update();
+            assert!(!app.world().contains_resource::<ActiveMatch>());
+            let displayed = app
+                .world_mut()
+                .query::<&Text>()
+                .iter(app.world())
+                .map(|text| text.0.clone())
+                .collect::<Vec<_>>();
+            assert!(displayed.contains(&"Game Setup".to_string()));
+            assert!(displayed.contains(&format!("{} x {}", rules.grid_size(), rules.grid_size())));
+            assert!(displayed.contains(&format!("{} letters", rules.minimum_word_length())));
+            assert!(displayed.contains(&rules.cube_set().name().to_string()));
+            for cube in rules.cube_set().cubes() {
+                assert!(displayed.contains(&cube.faces().join(" / ")));
+            }
+            let start = press_menu_button(&mut app, "Start game");
+            assert_eq!(
+                app.world().get::<Node>(start).unwrap().margin.top,
+                Val::Auto
+            );
+            app.update();
+            app.update();
+
+            for round_index in 0..2 {
+                let game = &app.world().resource::<ActiveMatch>().0;
+                assert_eq!(game.rules(), &rules);
+                assert_eq!(
+                    game.current_round().unwrap().remaining(),
+                    Some(Duration::from_secs(180))
+                );
+                assert_eq!(
+                    game.current_round().unwrap().board().cubes().len(),
+                    rules.grid_size().pow(2)
+                );
+                assert_eq!(
+                    app.world_mut()
+                        .query::<&WorldAssetRoot>()
+                        .iter(app.world())
+                        .count(),
+                    rules.grid_size().pow(2)
+                );
+
+                app.world_mut()
+                    .write_message(PlayerIntent::RollComplete)
+                    .unwrap();
+                app.update();
+                app.update();
+                let paths = [vec![0, 1, 2], vec![0, 1, 2, 3]];
+                let game = &app.world().resource::<ActiveMatch>().0;
+                let grid = game.current_round().unwrap().board().grid();
+                let words = paths
+                    .iter()
+                    .map(|path| grid.word_for_path(path).unwrap())
+                    .collect::<Vec<_>>();
+                let expected_count = words
+                    .iter()
+                    .filter(|word| word.len() >= rules.minimum_word_length())
+                    .count();
+                let dictionary = app
+                    .world_mut()
+                    .resource_mut::<Assets<DictionaryAsset>>()
+                    .add(DictionaryAsset(Dictionary::from_words(words)));
+                app.world_mut().resource_mut::<ContentCatalog>().dictionary = dictionary;
+                for path in paths {
+                    app.world_mut()
+                        .write_message(PlayerIntent::SubmitPath(path))
+                        .unwrap();
+                }
+                app.update();
+                assert_eq!(
+                    app.world()
+                        .resource::<ActiveMatch>()
+                        .0
+                        .current_round()
+                        .unwrap()
+                        .submissions(LOCAL_PLAYER)
+                        .len(),
+                    expected_count
+                );
+
+                app.world_mut()
+                    .write_message(PlayerIntent::EndRound)
+                    .unwrap();
+                app.update();
+                app.update();
+                assert_eq!(
+                    *app.world().resource::<State<RoundScreen>>().get(),
+                    RoundScreen::Review
+                );
+                let solution = app.world().resource::<ReviewSolution>();
+                assert_eq!(solution.words.len(), expected_count);
+                assert!(
+                    solution
+                        .words
+                        .iter()
+                        .all(|word| word.word.len() >= rules.minimum_word_length())
+                );
+                if round_index == 0 {
+                    app.world_mut()
+                        .write_message(PlayerIntent::StartNextRound)
+                        .unwrap();
+                    app.update();
+                    app.update();
+                }
+            }
+            app.world_mut()
+                .write_message(PlayerIntent::FinishMatch)
+                .unwrap();
+            app.update();
+
+            let button = app
+                .world_mut()
+                .query_filtered::<Entity, With<ReturnToMenuButton>>()
+                .single(app.world())
+                .unwrap();
+            assert_eq!(
+                app.world().get::<Node>(button).unwrap().display,
+                Display::Flex
+            );
+            app.world_mut()
+                .entity_mut(button)
+                .insert(Interaction::Pressed);
+            app.update();
+
+            assert!(!app.world().contains_resource::<ActiveMatch>());
+            assert_eq!(
+                *app.world().resource::<State<Screen>>().get(),
+                Screen::Match
+            );
+            app.update();
+            assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
+            assert!(!app.world().contains_resource::<State<RoundScreen>>());
+            app.update();
+        }
+
+        assert!(app.should_exit().is_none());
+        press_menu_button(&mut app, "QUIT");
+        app.update();
+        assert_eq!(app.should_exit(), Some(bevy::app::AppExit::Success));
     }
 
     #[test]
@@ -985,7 +1171,7 @@ mod tests {
             "03:00"
         );
         assert_eq!(format_duration(Some(Duration::from_secs(9))), "00:09");
-        assert_eq!(format_duration(None), "∞");
+        assert_eq!(format_duration(None), "NO LIMIT");
     }
 
     #[test]
