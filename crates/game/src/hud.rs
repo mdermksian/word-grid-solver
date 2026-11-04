@@ -537,7 +537,7 @@ fn setup_hud(mut commands: Commands) {
                     BackgroundColor(Color::srgb(0.28, 0.18, 0.11)),
                 ))
                 .with_children(|button| {
-                    button.spawn((Text::new("END ROUND EARLY"), TextColor::WHITE));
+                    button.spawn((Text::new("END ROUND"), TextColor::WHITE));
                 });
         });
 }
@@ -881,7 +881,6 @@ mod tests {
         input::{keyboard::KeyboardInput, mouse::MouseWheel},
         prelude::*,
         state::app::StatesPlugin,
-        ui::InteractionDisabled,
     };
     use word_grid_game_core::{CubeSet, Dictionary, GameRules};
     use word_grid_solver::FoundWord;
@@ -970,7 +969,11 @@ mod tests {
         );
         assert!(!app.world().contains_resource::<ActiveMatch>());
         let custom = press_menu_button(&mut app, "Custom game");
-        assert!(app.world().get::<InteractionDisabled>(custom).is_some());
+        assert!(
+            app.world()
+                .get::<bevy::ui::InteractionDisabled>(custom)
+                .is_none()
+        );
         app.update();
         assert!(!app.world().contains_resource::<ActiveMatch>());
         let back = press_menu_button(&mut app, "BACK TO MAIN MENU");

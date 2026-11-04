@@ -3,8 +3,10 @@
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use bevy::ui::InteractionDisabled;
-use word_grid_game_core::{GameRules, PlayMode};
+use word_grid_game_core::{GameRules, PlayMode, ScoreBand};
+
+mod custom;
+use custom::{CustomGameDraft, CustomSetupPlugin};
 
 use crate::content::ContentCatalog;
 use crate::flow::{MenuNavigationButton, Screen};
@@ -20,13 +22,19 @@ enum Preset {
     #[default]
     Standard,
     Big,
+    Custom,
 }
 
 impl Preset {
-    fn rules(self, catalog: &ContentCatalog) -> GameRules {
+    fn rules(
+        self,
+        catalog: &ContentCatalog,
+        custom: &CustomGameDraft,
+    ) -> Result<GameRules, String> {
         match self {
-            Self::Standard => catalog.rules.clone(),
-            Self::Big => GameRules::big(),
+            Self::Standard => Ok(catalog.rules.clone()),
+            Self::Big => Ok(GameRules::big()),
+            Self::Custom => custom.rules(),
         }
     }
 
@@ -34,13 +42,7 @@ impl Preset {
         match self {
             Self::Standard => "Standard game",
             Self::Big => "Big game",
-        }
-    }
-
-    fn intent(self) -> PlayerIntent {
-        match self {
-            Self::Standard => PlayerIntent::StartNormal,
-            Self::Big => PlayerIntent::StartBig,
+            Self::Custom => "Custom game",
         }
     }
 }
@@ -62,6 +64,7 @@ pub(crate) struct GameSetupPlugin;
 impl Plugin for GameSetupPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SelectedPreset>()
+            .add_plugins(CustomSetupPlugin)
             .add_systems(OnEnter(Screen::GameSetup), setup_screen)
             .add_systems(
                 Update,
@@ -174,7 +177,7 @@ fn setup_screen(mut commands: Commands, mut selection: ResMut<SelectedPreset>) {
                 ))
                 .with_children(|sidebar| {
                     sidebar.spawn(text("Game presets", 22.0, GOLD));
-                    for preset in [Preset::Standard, Preset::Big] {
+                    for preset in [Preset::Standard, Preset::Big, Preset::Custom] {
                         sidebar
                             .spawn((
                                 Button,
@@ -186,21 +189,6 @@ fn setup_screen(mut commands: Commands, mut selection: ResMut<SelectedPreset>) {
                                 button.spawn(text(preset.label(), 22.0, Color::WHITE));
                             });
                     }
-                    sidebar
-                        .spawn((
-                            Button,
-                            InteractionDisabled,
-                            button_node(),
-                            BackgroundColor(Color::srgb(0.22, 0.16, 0.12)),
-                        ))
-                        .with_children(|button| {
-                            button.spawn(text("Custom game", 22.0, Color::srgb(0.5, 0.45, 0.4)));
-                        });
-                    sidebar.spawn(text(
-                        "Custom games coming soon",
-                        16.0,
-                        Color::srgb(0.7, 0.6, 0.5),
-                    ));
                     sidebar
                         .spawn((
                             Button,
@@ -250,24 +238,38 @@ fn select_preset(
 fn start_game(
     buttons: Query<&Interaction, (Changed<Interaction>, With<StartGameButton>)>,
     selection: Res<SelectedPreset>,
+    custom: Res<CustomGameDraft>,
     mut intents: MessageWriter<PlayerIntent>,
 ) {
     if buttons
         .iter()
         .any(|interaction| *interaction == Interaction::Pressed)
     {
-        intents.write(selection.0.intent());
+        let intent = match selection.0 {
+            Preset::Standard => PlayerIntent::StartNormal,
+            Preset::Big => PlayerIntent::StartBig,
+            Preset::Custom => {
+                let Ok(rules) = custom.rules() else {
+                    return;
+                };
+                PlayerIntent::StartCustom(rules)
+            }
+        };
+        intents.write(intent);
     }
 }
 
 fn refresh_rules(
     selection: Res<SelectedPreset>,
     catalog: Res<ContentCatalog>,
+    custom: Res<CustomGameDraft>,
+    mut rendered: Local<Option<(Preset, usize)>>,
     mut commands: Commands,
     mut panels: Query<(Entity, &mut ScrollPosition), With<RulesContent>>,
     mut buttons: Query<(&PresetButton, &mut BackgroundColor)>,
 ) {
-    if !selection.is_changed() && !catalog.is_changed() {
+    let key = (selection.0, custom.grid_size);
+    if !selection.is_changed() && !catalog.is_changed() && *rendered == Some(key) {
         return;
     }
     for (preset, mut background) in &mut buttons {
@@ -280,67 +282,90 @@ fn refresh_rules(
     let Ok((panel, mut scroll)) = panels.single_mut() else {
         return;
     };
-    scroll.0 = Vec2::ZERO;
-    let rules = selection.0.rules(&catalog);
+    if selection.is_changed() || catalog.is_changed() {
+        scroll.0 = Vec2::ZERO;
+    }
+    *rendered = Some(key);
     commands.entity(panel).despawn_related::<Children>();
     commands.entity(panel).with_children(|content| {
         content.spawn(text(selection.0.label(), 32.0, GOLD));
-        rule_row(
-            content,
-            "Grid size (height x width)",
-            format!("{} x {}", rules.grid_size(), rules.grid_size()),
-        );
-        rule_row(
-            content,
-            "Minimum word length",
-            format!("{} letters", rules.minimum_word_length()),
-        );
-        rule_row(
-            content,
-            "Timing configuration",
-            timing_label(rules.play_mode()),
-        );
-
-        content.spawn(text("Scoring table", 24.0, GOLD));
-        rule_row(content, "Word length", "Points");
-        for (index, band) in rules.scoring().bands().iter().enumerate() {
-            let length = match rules.scoring().bands().get(index + 1) {
-                Some(next) if next.minimum_length == band.minimum_length + 1 => {
-                    band.minimum_length.to_string()
-                }
-                Some(next) => format!("{}-{}", band.minimum_length, next.minimum_length - 1),
-                None => format!("{}+", band.minimum_length),
-            };
+        let cubes = if selection.0 == Preset::Custom {
+            custom::spawn_editor(content, &custom);
+            custom.cube_set()
+        } else {
+            let rules = selection
+                .0
+                .rules(&catalog, &custom)
+                .expect("preset rules are valid");
             rule_row(
                 content,
-                &format!("{length} letters"),
-                band.points.to_string(),
+                "Grid size (height x width)",
+                format!("{} x {}", rules.grid_size(), rules.grid_size()),
             );
-        }
-        content.spawn(text(
-            format!(
-                "Only words with at least {} letters are accepted.",
-                rules.minimum_word_length()
-            ),
-            16.0,
-            Color::srgb(0.8, 0.72, 0.62),
-        ));
+            rule_row(
+                content,
+                "Minimum word length",
+                format!("{} letters", rules.minimum_word_length()),
+            );
+            rule_row(
+                content,
+                "Timing configuration",
+                timing_label(rules.play_mode()),
+            );
 
+            content.spawn(text("Scoring table", 24.0, GOLD));
+            rule_row(content, "Word length", "Points");
+            for (index, band) in rules.scoring().bands().iter().enumerate() {
+                rule_row(
+                    content,
+                    &score_bucket_label(rules.scoring().bands(), index),
+                    band.points.to_string(),
+                );
+            }
+            content.spawn(text(
+                format!(
+                    "Only words with at least {} letters are accepted.",
+                    rules.minimum_word_length()
+                ),
+                16.0,
+                Color::srgb(0.8, 0.72, 0.62),
+            ));
+
+            rules.cube_set().clone()
+        };
         content.spawn(text("Configured cubes", 24.0, GOLD));
-        rule_row(content, "Cube set", rules.cube_set().name());
-        rule_row(
-            content,
-            "Dice count",
-            rules.cube_set().cubes().len().to_string(),
-        );
+        rule_row(content, "Cube set", cubes.name());
+        rule_row(content, "Dice count", cubes.cubes().len().to_string());
         rule_row(content, "Die", "Faces");
-        for (index, cube) in rules.cube_set().cubes().iter().enumerate() {
+        for (index, cube) in cubes.cubes().iter().enumerate() {
             rule_row(content, &format!("{}", index + 1), cube.faces().join(" / "));
         }
     });
 }
 
+fn score_bucket_label(bands: &[ScoreBand], index: usize) -> String {
+    let band = bands[index];
+    let length = match bands.get(index + 1) {
+        Some(next) if next.minimum_length == band.minimum_length + 1 => {
+            band.minimum_length.to_string()
+        }
+        Some(next) => format!("{}-{}", band.minimum_length, next.minimum_length - 1),
+        None => format!("{}+", band.minimum_length),
+    };
+    format!("{length} letters")
+}
+
 fn rule_row(parent: &mut ChildSpawnerCommands, label: &str, value: impl Into<String>) {
+    value_row(parent, label, |cell| {
+        cell.spawn(text(value, 20.0, Color::WHITE));
+    });
+}
+
+fn value_row(
+    parent: &mut ChildSpawnerCommands,
+    label: &str,
+    value: impl FnOnce(&mut ChildSpawnerCommands),
+) {
     parent
         .spawn(Node {
             width: Val::Percent(100.0),
@@ -362,11 +387,12 @@ fn rule_row(parent: &mut ChildSpawnerCommands, label: &str, value: impl Into<Str
                 flex_grow: 1.0,
                 flex_basis: Val::Px(0.0),
                 min_width: Val::Px(0.0),
+                column_gap: Val::Px(8.0),
+                flex_wrap: FlexWrap::Wrap,
+                row_gap: Val::Px(8.0),
                 ..default()
             })
-            .with_children(|cell| {
-                cell.spawn(text(value, 20.0, Color::WHITE));
-            });
+            .with_children(value);
         });
 }
 

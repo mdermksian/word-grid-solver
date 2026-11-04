@@ -33,14 +33,25 @@ cargo run -p word-grid-game
 
 The desktop client loads its content before showing Play game, Solve board, and
 Quit. Solve board is a placeholder. Play game opens Game Setup, with Standard
-(4x4, three-letter minimum), Big (5x5, four-letter minimum), and a disabled Custom
-option in the left sidebar. Selecting a preset shows its grid dimensions, word
+(4x4, three-letter minimum), Big (5x5, four-letter minimum), and Custom
+options in the left sidebar. Selecting a preset shows its grid dimensions, word
 minimum, timing, scoring table, cube-set name, dice count, and every die's faces
 in a scrollable panel on the right. Start game in the lower left launches the
 selected preset; Back to main menu remains in the top left. Big uses the built-in
 25-die Big cube set; Standard uses the Standard New cubes.
-Each round animates the authoritative board roll, starts a three-minute timer
-after the dice settle, accepts clicked paths or typed words, and ends in a review
+
+Custom starts with Standard rules. Choose a 4x4 or 5x5 grid (which automatically
+uses the Standard New or Big cubes), enter a minimum word length of at least
+three, and choose a positive whole number of seconds per round or Endless.
+Set nonnegative points for the existing 3-4, 5, 6, 7, and 8+ letter buckets.
+Click a numeric field to replace its value; Tab/Shift+Tab move between fields,
+Ctrl+A selects the whole value, and Enter/Escape leave the field. Invalid values
+show an error and disable Start game. Custom edits remain while switching presets
+within the setup screen and reset when you reopen it.
+Endless rounds show NO LIMIT and continue until you press END ROUND.
+
+Each round animates the authoritative board roll, starts the configured timer
+after the dice settle (unless Endless), accepts clicked paths or typed words, and ends in a review
 screen when time expires or the player ends the round early. Review keeps the
 played board visible beside the complete solution list; clicking a solution
 draws its path on the board. You can play additional rounds, finish the match to

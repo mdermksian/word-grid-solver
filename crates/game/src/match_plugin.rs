@@ -21,6 +21,7 @@ pub enum GameSet {
 pub enum PlayerIntent {
     StartNormal,
     StartBig,
+    StartCustom(GameRules),
     RollComplete,
     SubmitPath(Vec<usize>),
     SubmitText(String),
@@ -79,12 +80,13 @@ fn apply_player_intents(
     let mut match_exists = game.is_some();
     for intent in intents.read() {
         match intent {
-            PlayerIntent::StartNormal | PlayerIntent::StartBig => {
+            PlayerIntent::StartNormal | PlayerIntent::StartBig | PlayerIntent::StartCustom(_) => {
                 if match_exists {
                     continue;
                 }
                 let rules = match intent {
                     PlayerIntent::StartBig => GameRules::big(),
+                    PlayerIntent::StartCustom(rules) => rules.clone(),
                     _ => catalog.rules.clone(),
                 };
                 let mut new_match =
