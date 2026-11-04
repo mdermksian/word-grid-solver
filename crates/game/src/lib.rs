@@ -4,11 +4,13 @@
 mod app;
 mod audio;
 mod board;
+mod board_solver;
 mod content;
 mod flow;
 mod game_setup;
 mod hud;
 mod match_plugin;
+mod solutions;
 
 use bevy::prelude::*;
 

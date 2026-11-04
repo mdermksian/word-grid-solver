@@ -151,7 +151,7 @@ consumers. Presentation-only messages, such as requesting that the board display
 a solved-word path, may connect client plugins without passing through
 `MatchPlugin`. Direct domain mutation from board or HUD systems is not permitted.
 
-Top-level screens are Loading, Menu, GameSetup, and Match. While a match screen is active,
+Top-level screens are Loading, Menu, GameSetup, SolveBoard, and Match. While a match screen is active,
 its projected round screen is Rolling, Playing, or Review. `MatchPhase` remains
 the authority for every transition; the Bevy states only select systems and
 scope presentation entities.
@@ -165,7 +165,7 @@ Loading -> Menu -> GameSetup -> Match/Rolling -> Match/Playing -> Match/Review
 ```
 
 Loading waits for the dictionary and cube scene, then the main menu offers
-Play game, Solve board (a placeholder), and Quit. Play game opens GameSetup,
+Play game, Solve board, and Quit. Play game opens GameSetup,
 where a sidebar selects Standard or Big and a scrollable details panel renders
 that preset's `GameRules`, including its cube faces and scoring bands. Custom
 starts from Standard rules and exposes grid size, timing, minimum length, and
@@ -182,6 +182,18 @@ rolling presentation reports completion before the core starts its authoritative
 timer. Timer expiry
 produces an immutable round result; review can either start another authoritative
 roll or finish the match and show cumulative totals.
+
+`BoardSolverPlugin` owns SolveBoard and does not create an `ActiveMatch`. It
+accepts tiles in a 4x4 or 5x5 `WordGrid`. Typing into an empty tile advances
+focus unless Shift is held; explicit multi-letter entries use Shift and finish
+with Tab or Enter. The screen then runs
+`GridSolver` on the async compute task pool with the matching preset minimum
+word length. The screen polls its owned task without blocking UI updates and
+drops the task on exit, keeping old results out of later solver sessions.
+`solutions.rs` shares solution-row rendering and path metadata between the
+match review and standalone solver; solver selections highlight numbered tiles
+in the input grid. Editing is locked while solving and viewing results; solving
+another board clears the current grid and results while preserving its size.
 
 ## Content and Platform Boundaries
 

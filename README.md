@@ -32,7 +32,7 @@ cargo run -p word-grid-game
 ```
 
 The desktop client loads its content before showing Play game, Solve board, and
-Quit. Solve board is a placeholder. Play game opens Game Setup, with Standard
+Quit. Play game opens Game Setup, with Standard
 (4x4, three-letter minimum), Big (5x5, four-letter minimum), and Custom
 options in the left sidebar. Selecting a preset shows its grid dimensions, word
 minimum, timing, scoring table, cube-set name, dice count, and every die's faces
@@ -57,6 +57,20 @@ played board visible beside the complete solution list; clicking a solution
 draws its path on the board. You can play additional rounds, finish the match to
 see the cumulative score, and return to the menu without restarting the
 application.
+
+Solve board opens a separate screen with a 4x4 or 5x5 input grid on the left and
+the game's scrollable solution list on the right. Typing a letter into an empty
+tile automatically advances to the next tile. Hold either Shift key while typing
+to keep focus on the current tile for multi-letter entries such as QU, then use
+Tab or Enter to move on. Shift+Tab moves back; arrow keys and clicking let you
+revisit tiles. Editing an already-filled tile keeps focus there. Q and QU remain
+distinct entries.
+Solve grid becomes available once all tiles are filled. Solving runs in the
+background using the same dictionary, minimum word lengths (3 for 4x4 and 4 for
+5x5), and standard scoring as the presets. Results sort longest first, then
+alphabetically. Click a word to highlight and number its path in the grid.
+Solve another board clears the grid and results while keeping the selected size;
+Back to main menu is available throughout, including during a solve.
 
 ## Local quality checks
 

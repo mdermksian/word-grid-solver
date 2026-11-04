@@ -13,6 +13,7 @@ use crate::board::BoardHighlightRequest;
 use crate::content::{ContentCatalog, DictionaryAsset};
 use crate::flow::{RoundScreen, Screen};
 use crate::match_plugin::{ActiveMatch, GameSet, LOCAL_PLAYER, MatchNotice, PlayerIntent};
+use crate::solutions::{SolutionWord, spawn_solution_words};
 
 #[derive(Component)]
 struct HudInput;
@@ -34,12 +35,6 @@ struct WordList;
 
 #[derive(Component)]
 struct ReviewWordList;
-
-#[derive(Component)]
-struct ReviewWord {
-    path: Vec<usize>,
-    was_submitted: bool,
-}
 
 #[derive(Component)]
 struct ReviewTitle;
@@ -107,7 +102,7 @@ type ReviewWordButtonQuery<'w, 's> = Query<
     's,
     (
         &'static Interaction,
-        &'static ReviewWord,
+        &'static SolutionWord,
         &'static mut BackgroundColor,
     ),
     (Changed<Interaction>, With<Button>),
@@ -260,58 +255,12 @@ fn setup_review(mut commands: Commands, game: Res<ActiveMatch>, solution: Res<Re
                     ReviewWordList,
                 ))
                 .with_children(|list| {
-                    for solved in &solution.words {
-                        let was_submitted = submitted.contains(solved.word.as_str());
-                        list.spawn((
-                            Button,
-                            ReviewWord {
-                                path: solved.path.clone(),
-                                was_submitted,
-                            },
-                            Node {
-                                width: Val::Percent(100.0),
-                                min_height: Val::Px(36.0),
-                                padding: UiRect::horizontal(Val::Px(10.0)),
-                                align_items: AlignItems::Center,
-                                justify_content: JustifyContent::SpaceBetween,
-                                border_radius: BorderRadius::all(Val::Px(6.0)),
-                                ..default()
-                            },
-                            BackgroundColor(if was_submitted {
-                                Color::srgb(0.12, 0.32, 0.18)
-                            } else {
-                                Color::srgb(0.22, 0.15, 0.1)
-                            }),
-                        ))
-                        .with_children(|button| {
-                            button.spawn((
-                                Text::new(if was_submitted {
-                                    format!("[x] {}", solved.word.to_uppercase())
-                                } else {
-                                    solved.word.to_uppercase()
-                                }),
-                                TextFont {
-                                    font_size: FontSize::Px(18.0),
-                                    ..default()
-                                },
-                                TextColor::WHITE,
-                            ));
-                            button.spawn((
-                                Text::new(
-                                    game.0
-                                        .rules()
-                                        .scoring()
-                                        .score_word(&solved.word)
-                                        .to_string(),
-                                ),
-                                TextFont {
-                                    font_size: FontSize::Px(17.0),
-                                    ..default()
-                                },
-                                TextColor(Color::srgb(1.0, 0.82, 0.35)),
-                            ));
-                        });
-                    }
+                    spawn_solution_words(
+                        list,
+                        &solution.words,
+                        game.0.rules().scoring(),
+                        &submitted,
+                    );
                 });
             parent
                 .spawn((
@@ -956,9 +905,16 @@ mod tests {
         press_menu_button(&mut app, "SOLVE BOARD");
         app.update();
         app.update();
-        assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
+        assert_eq!(
+            *app.world().resource::<State<Screen>>().get(),
+            Screen::SolveBoard
+        );
         assert!(!app.world().contains_resource::<ActiveMatch>());
         assert!(app.should_exit().is_none());
+        press_menu_button(&mut app, "BACK TO MAIN MENU");
+        app.update();
+        app.update();
+        assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu);
 
         press_menu_button(&mut app, "PLAY GAME");
         app.update();
