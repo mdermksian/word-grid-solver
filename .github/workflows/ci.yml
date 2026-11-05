@@ -36,3 +36,40 @@ jobs:
         run: cargo test --workspace --locked
       - name: Compile
         run: cargo check --workspace --all-targets --locked
+
+  coverage:
+    name: Code coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: coverage
+      - name: Install Bevy Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+      - name: Test with coverage
+        run: cargo llvm-cov --workspace --locked --no-report
+      - name: Generate coverage reports
+        run: |
+          mkdir -p target/coverage
+          cargo llvm-cov report
+          cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
+          cargo llvm-cov report --html --output-dir target/coverage
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            target/coverage/lcov.info
+            target/coverage/html/
+          retention-days: 14
+          if-no-files-found: error
