@@ -87,6 +87,42 @@ cargo test --workspace --locked
 cargo check --workspace --all-targets --locked
 ```
 
+## Code coverage
+
+CI measures coverage across all four workspace crates on pull requests to `main`
+and pushes to `main`. Coverage is informational: there is no minimum percentage,
+regression check, or coverage target. Test failures and coverage tooling errors
+still fail the coverage job.
+
+To measure coverage locally, install the LLVM tools for the pinned Rust toolchain
+and the same version of `cargo-llvm-cov` used in CI:
+
+```sh
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov --version 0.9.1 --locked
+```
+
+Run the workspace tests once, then generate the reports from that run:
+
+```sh
+cargo llvm-cov --workspace --locked --no-report
+mkdir -p target/coverage
+cargo llvm-cov report
+cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
+cargo llvm-cov report --html --output-dir target/coverage
+```
+
+Open `target/coverage/html/index.html` to explore coverage by file and line.
+`target/coverage/lcov.info` contains machine-readable coverage data. These reports
+measure Rust source exercised by the tests; interactive gameplay, branch coverage,
+and doctest coverage are not measured by this setup. Generated files stay under
+the already-ignored `target/` directory.
+
+In GitHub Actions, open the CI run and download the `coverage-report` artifact
+from the run's summary page. Extract it and open `html/index.html` to view the
+report. Reports are retained for 14 days; the coverage job also prints a summary
+in its logs.
+
 ## Packaging locally
 
 Build a release archive on the same operating system you intend to run it on. The bundle must keep the game executable next to its `assets/` directory.
